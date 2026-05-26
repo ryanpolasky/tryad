@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tryad.net/sitemap.xml

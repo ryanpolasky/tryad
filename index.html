@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090b" />
+
+    <!-- primary meta -->
+    <title>tryad, free chord progression generator</title>
+    <meta
+      name="description"
+      content="tryad is a free, unlimited chord progression generator. Music-theory-aware: 9 scales, 10 moods, secondary dominants, modal interchange, voice leading, 11 play modes. Play in-browser, export to MIDI, save locally. No signup, no paywall, nothing leaves your device."
+    />
+    <meta
+      name="keywords"
+      content="chord progression generator, free chord generator, chord progression, music theory, MIDI export, songwriting, jazz chords, modal interchange, voice leading, no signup"
+    />
+    <meta name="author" content="Ryan Polasky" />
+    <link rel="canonical" href="https://tryad.net/" />
+
+    <!-- open graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="tryad" />
+    <meta property="og:title" content="tryad, free chord progression generator" />
+    <meta
+      property="og:description"
+      content="Music-theory-aware chord progressions, free and unlimited. Secondary dominants, modal interchange, voice leading, MIDI export. No signup, no paywall."
+    />
+    <meta property="og:url" content="https://tryad.net/" />
+    <meta property="og:image" content="https://tryad.net/og.webp" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="tryad, free chord progression generator" />
+
+    <!-- twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="tryad, free chord progression generator" />
+    <meta
+      name="twitter:description"
+      content="Music-theory-aware chord progressions, free and unlimited. Secondary dominants, modal interchange, voice leading, MIDI export. No signup, no paywall."
+    />
+    <meta name="twitter:image" content="https://tryad.net/og.webp" />
+    <meta name="twitter:image:alt" content="tryad, free chord progression generator" />
+
+    <!--
+      Structured data uses the same `@graph` shape as ryanpolasky.com so the
+      Person / WebApplication entities are joined across the ry* site family.
+      The Person node here is a stub `@id` reference back to the canonical
+      definition at https://ryanpolasky.com/#person; search engines will
+      reconcile this into a single Person entity covering all of Ryan's apps.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://tryad.net/#website",
+            "url": "https://tryad.net/",
+            "name": "tryad",
+            "alternateName": "tryad, chord progressions, free",
+            "description": "A free, music-theory-aware chord progression generator. Runs entirely in the browser. No signup, no paywall.",
+            "inLanguage": "en",
+            "publisher": { "@id": "https://ryanpolasky.com/#person" },
+            "author": { "@id": "https://ryanpolasky.com/#person" },
+            "copyrightHolder": { "@id": "https://ryanpolasky.com/#person" }
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://tryad.net/#app",
+            "name": "tryad",
+            "alternateName": "tryad, chord progression generator",
+            "url": "https://tryad.net/",
+            "description": "A music-theory-aware chord progression generator. Pick a key, scale, and mood, then get progressions with secondary dominants, modal interchange, voice leading, piano + guitar visualizer, drum patterns, and MIDI export. Runs entirely in the browser.",
+            "image": "https://tryad.net/og.webp",
+            "applicationCategory": "MultimediaApplication",
+            "applicationSubCategory": "Chord Progression Generator",
+            "operatingSystem": "Any",
+            "inLanguage": "en",
+            "featureList": [
+              "9 scales (major, natural minor, dorian, phrygian, lydian, mixolydian, locrian, harmonic minor, melodic minor)",
+              "10 mood templates (pop, sad, happy, epic, jazz, r&b, dreamy, lofi, cinematic, random)",
+              "Secondary dominants (V/V, V/vi, V/iv)",
+              "Modal interchange (borrowed chords from parallel modes)",
+              "Cadence-aware endings (authentic, plagal, deceptive)",
+              "Voice leading with manual inversion override",
+              "Piano + guitar chord visualizer",
+              "11 play modes (block, pulse, syncopated, strum, rolled harp gliss, arp up/down/up-down/random, alberti, ballad bass+chord)",
+              "5 drum styles (four-on-floor, boom-bap, halftime, ballad, jazz brushes)",
+              "Save to localStorage (never uploaded)",
+              "Export as standard MIDI (.mid)"
+            ],
+            "creator": { "@id": "https://ryanpolasky.com/#person" },
+            "author": { "@id": "https://ryanpolasky.com/#person" },
+            "publisher": { "@id": "https://ryanpolasky.com/#person" },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            }
+          },
+          {
+            "@type": "Person",
+            "@id": "https://ryanpolasky.com/#person",
+            "name": "Ryan Polasky",
+            "url": "https://ryanpolasky.com/",
+            "sameAs": [
+              "https://www.linkedin.com/in/ryan-polasky/",
+              "https://github.com/ryanpolasky"
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://api.fontshare.com" />
+    <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://api.fontshare.com/v2/css?f%5B%5D=bespoke-serif@1,2,3,400,500,600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="font-family: serif; max-width: 36rem; margin: 4rem auto; padding: 0 1.5rem; color: #ece4d4; background: #0e0c0a;">
+        <h1 style="font-size: 2rem; font-weight: 500; margin-bottom: 0.5rem;">tryad</h1>
+        <p style="opacity: 0.7;">
+          tryad is a chord progression generator that runs entirely in your
+          browser. JavaScript is required to play, visualize, and export.
+          Enable it and reload to get started. Nothing is uploaded, nothing
+          is tracked.
+        </p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

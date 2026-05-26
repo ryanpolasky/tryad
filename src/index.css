@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* exported for SVG fills / strokes that can't read tailwind theme() */
+    --bg-base: #08090b;
+    --bg-soft: #0d0f12;
+    --bg-card: #101317;
+    --bg-line: #1a1d23;
+    --ink: #e8e6e3;
+    --ink-mute: #8a8d93;
+    --ink-dim: #5a5e66;
+    --accent: #d99550;
+    --accent-soft: #e8b06b;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-feature-settings: 'ss01', 'ss02', 'cv11';
+    background-image:
+      radial-gradient(1200px 700px at 0% -10%, rgba(217, 149, 80, 0.05), transparent 55%),
+      radial-gradient(900px 500px at 100% 110%, rgba(217, 149, 80, 0.03), transparent 55%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-accent/30 text-ink;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  /* mono uppercase label, used for section eyebrows and field labels */
+  .eyebrow {
+    @apply font-mono uppercase text-[10.5px] tracking-widest text-ink-mute;
+  }
+  /* section number tag, e.g. "00 ━ generator" */
+  .section-tag {
+    @apply font-mono uppercase text-[11px] tracking-widest text-ink-mute flex items-center gap-2;
+  }
+  .section-tag::before {
+    content: '';
+    @apply inline-block w-6 h-px bg-bg-line;
+  }
+  /* pill button - primary (filled green) */
+  .pill {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm
+           border border-bg-line bg-transparent text-ink
+           hover:border-ink-mute hover:bg-bg-hover
+           transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none;
+  }
+  .pill-primary {
+    @apply border-accent/70 bg-accent/15 text-accent
+           hover:bg-accent/25 hover:border-accent;
+  }
+  .pill-icon {
+    @apply rounded-full p-2 border border-bg-line bg-transparent text-ink-mute
+           hover:border-ink-mute hover:text-ink hover:bg-bg-hover
+           transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  /* chip - small inline pill */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5
+           font-mono text-[10.5px] uppercase tracking-widest
+           border border-bg-line text-ink-mute;
+  }
+  .chip-accent {
+    @apply border-accent/40 text-accent;
+  }
+  /* card - used for chord cells, panels */
+  .card {
+    @apply rounded-xl border border-bg-line bg-bg-card;
+  }
+  .panel {
+    @apply rounded-2xl border border-bg-line bg-bg-soft/60 backdrop-blur-sm;
+  }
+  /*
+   * progression grid:
+   *   - On narrow viewports, wrap to multiple rows so chord cards stay readable
+   *     (each cell at least ~64px wide). Without this, 12 chords on a 375px
+   *     phone collapse to a single illegible row.
+   *   - On sm+ we honor the inline `--cols` (set per-progression in App.tsx) to
+   *     keep the single-row layout the user explicitly asked for on desktop.
+   */
+  .progression-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  }
+  @media (min-width: 640px) {
+    .progression-grid {
+      grid-template-columns: var(--cols, repeat(4, minmax(0, 1fr)));
+    }
+  }
+  /* native select / input baseline */
+  .input {
+    @apply rounded-lg border border-bg-line bg-transparent px-3 py-2 text-sm text-ink
+           focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30;
+  }
+  /* keycap */
+  .kbd {
+    @apply font-mono text-[10px] uppercase tracking-widest text-ink-mute
+           border border-bg-line rounded px-1.5 py-[2px];
+  }
+  /* underline-block accent (echoes the green underline on ryanpolasky.com) */
+  .accent-underline {
+    background-image: linear-gradient(
+      to top,
+      theme(colors.accent.DEFAULT / 35%) 0,
+      theme(colors.accent.DEFAULT / 35%) 30%,
+      transparent 30%
+    );
+    @apply px-0.5;
+  }
+}
+
+/* range slider - green thumb, thin track */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 18px;
+  width: 100%;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 2px;
+  background: theme(colors.bg.line);
+  border-radius: 1px;
+}
+input[type='range']::-moz-range-track {
+  height: 2px;
+  background: theme(colors.bg.line);
+  border-radius: 1px;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: theme(colors.accent.DEFAULT);
+  border: 2px solid theme(colors.bg.DEFAULT);
+  box-shadow: 0 0 0 1px theme(colors.accent.DEFAULT);
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: theme(colors.accent.DEFAULT);
+  border: 2px solid theme(colors.bg.DEFAULT);
+}
