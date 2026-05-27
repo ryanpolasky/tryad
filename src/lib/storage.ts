@@ -35,6 +35,8 @@ export interface SavedProgression {
   chordBeats?: number[]
   /** per-chord inversion (0 = auto/root, 1 = first, ...) */
   inversions?: number[]
+  /** per-chord lock; true = preserved across generate. defaults to all false. */
+  locked?: boolean[]
   bpm: number
   beatsPerChord: number
   instrument: string

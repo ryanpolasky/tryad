@@ -7,9 +7,12 @@ import { Slider } from './Slider'
 interface TransportProps {
   isPlaying: boolean
   isLoading: boolean
+  isRendering: boolean
   onPlayToggle: () => void
   onExport: () => void
+  onRenderWav: () => void
   onSave: () => void
+  onShare: () => void
   visualizerOpen: boolean
   onToggleVisualizer: () => void
   bpm: number
@@ -25,9 +28,12 @@ interface TransportProps {
 export function Transport({
   isPlaying,
   isLoading,
+  isRendering,
   onPlayToggle,
   onExport,
+  onRenderWav,
   onSave,
+  onShare,
   visualizerOpen,
   onToggleVisualizer,
   bpm,
@@ -71,8 +77,21 @@ export function Transport({
         <button type="button" onClick={onSave} className="pill py-2.5">
           <Icon name="save" /> save
         </button>
+        <button type="button" onClick={onShare} className="pill py-2.5">
+          <Icon name="share" /> share
+        </button>
         <button type="button" onClick={onExport} className="pill py-2.5">
-          <Icon name="midi" /> export midi
+          <Icon name="midi" /> midi
+        </button>
+        <button
+          type="button"
+          onClick={onRenderWav}
+          disabled={isRendering}
+          className="pill py-2.5"
+          title="Bounce the loop to a 16-bit WAV file"
+        >
+          {isRendering ? <Spinner /> : <Icon name="wav" />}{' '}
+          {isRendering ? 'rendering…' : 'wav'}
         </button>
         <div className="ml-auto hidden md:flex items-center gap-2 text-[11px] text-ink-mute font-mono uppercase tracking-widest">
           <span className="kbd">space</span> play
@@ -116,7 +135,7 @@ function Spinner() {
   )
 }
 
-function Icon({ name }: { name: 'play' | 'pause' | 'midi' | 'save' | 'visualizer' }) {
+function Icon({ name }: { name: 'play' | 'pause' | 'midi' | 'save' | 'visualizer' | 'share' | 'wav' }) {
   switch (name) {
     case 'play':
       return (
@@ -163,6 +182,34 @@ function Icon({ name }: { name: 'play' | 'pause' | 'midi' | 'save' | 'visualizer
         >
           <path d="M5 4h10l2 2v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
           <path d="M7 4v4h6V4M7 17v-5h6v5" strokeLinejoin="round" />
+        </svg>
+      )
+    case 'share':
+      return (
+        <svg
+          viewBox="0 0 20 20"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        >
+          <circle cx="5.5" cy="10" r="2.2" />
+          <circle cx="14.5" cy="5.5" r="2.2" />
+          <circle cx="14.5" cy="14.5" r="2.2" />
+          <path d="M7.3 8.9 12.7 6.6M7.3 11.1l5.4 2.3" strokeLinecap="round" />
+        </svg>
+      )
+    case 'wav':
+      return (
+        <svg
+          viewBox="0 0 20 20"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        >
+          <path d="M3 10 L5 7 L7 13 L9 5 L11 15 L13 7 L15 12 L17 10" />
         </svg>
       )
   }

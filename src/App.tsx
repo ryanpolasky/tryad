@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { InstrumentId, PlayMode } from './lib/audio'
-import { PLAY_MODE_GROUPS, audio } from './lib/audio'
+import { PLAY_MODE_GROUPS, audio, renderProgression } from './lib/audio'
 import { ChordCard } from './components/ChordCard'
 import { ChordDrawer } from './components/ChordDrawer'
+import { ChordSwapPopover } from './components/ChordSwapPopover'
 import { type VisualizerMode } from './components/ChordVisualizer'
 import { SavedList } from './components/SavedList'
 import { Select } from './components/Select'
@@ -11,6 +12,9 @@ import { Transport } from './components/Transport'
 import { Header, Footer } from './components/Chrome'
 import { downloadMidi, progressionToMidi } from './lib/midi'
 import { storage, type SavedProgression } from './lib/storage'
+import { buildShareUrl, readShareFromHash } from './lib/share'
+import { useHistory } from './lib/history'
+import { audioBufferToWav, downloadBlob } from './lib/wav'
 import {
   ALL_KEYS,
   EXTENSIONS,
@@ -52,13 +56,12 @@ function effectiveInversions(chords: Chord[], userInversions: number[]): number[
 }
 
 function App() {
-  const [key, setKey] = useState<PitchClass>(0)
-  const [scaleId, setScaleId] = useState<ScaleId>('major')
-  const [moodId, setMoodId] = useState<MoodId>('pop')
-  const [length, setLength] = useState(4)
-  const [extension, setExtension] = useState<Extension>('triad')
+  // hydrate from `#s=...` if a shared link was opened. computed once so every
+  // useState lazy initializer below sees the same snapshot.
+  const initialShared = useMemo(() => readShareFromHash(), [])
   const initialProgression = useMemo(
     () =>
+      initialShared?.chords ??
       generateProgression({
         key: 0,
         scaleId: 'major',
@@ -66,21 +69,41 @@ function App() {
         length: 4,
         extension: 'triad',
       }).chords,
-    [],
+    [initialShared],
   )
+
+  const [key, setKey] = useState<PitchClass>(initialShared?.key ?? 0)
+  const [scaleId, setScaleId] = useState<ScaleId>(initialShared?.scaleId ?? 'major')
+  const [moodId, setMoodId] = useState<MoodId>(initialShared?.moodId ?? 'pop')
+  const [length, setLength] = useState(initialProgression.length)
+  const [extension, setExtension] = useState<Extension>(initialShared?.extension ?? 'triad')
   const [chords, setChords] = useState<Chord[]>(initialProgression)
-  const [chordBeats, setChordBeats] = useState<number[]>(() => new Array(4).fill(4))
+  const [chordBeats, setChordBeats] = useState<number[]>(
+    () => initialShared?.chordBeats ?? new Array(initialProgression.length).fill(4),
+  )
   // last template per mood, so generate doesn't pick the same one twice in a row.
   const lastTemplateRef = useRef<Record<string, number>>({})
 
-  const [bpm, setBpm] = useState(96)
-  const [beatsPerChord, setBeatsPerChord] = useState(4)
-  const [instrument, setInstrument] = useState<InstrumentId>('piano')
-  const [drumStyleId, setDrumStyleId] = useState<string>('off')
-  const [playMode, setPlayMode] = useState<PlayMode>('block')
+  const [bpm, setBpm] = useState(initialShared?.bpm ?? 96)
+  const [beatsPerChord, setBeatsPerChord] = useState(initialShared?.beatsPerChord ?? 4)
+  const [instrument, setInstrument] = useState<InstrumentId>(initialShared?.instrument ?? 'piano')
+  const [drumStyleId, setDrumStyleId] = useState<string>(initialShared?.drumStyleId ?? 'off')
+  const [playMode, setPlayMode] = useState<PlayMode>(initialShared?.playMode ?? 'block')
 
   // 0 = auto, >=1 = user forced.
-  const [inversions, setInversions] = useState<number[]>(() => new Array(initialProgression.length).fill(0))
+  const [inversions, setInversions] = useState<number[]>(
+    () => initialShared?.inversions ?? new Array(initialProgression.length).fill(0),
+  )
+  // per-chord lock. generate/regen skip locked slots.
+  const [locked, setLocked] = useState<boolean[]>(
+    () => initialShared?.locked ?? new Array(initialProgression.length).fill(false),
+  )
+  // drag state. dragging = index being dragged; dragOver = index being hovered.
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  // swap popover anchor + which chord index it's targeting.
+  const [swapIdx, setSwapIdx] = useState<number | null>(null)
+  const [swapAnchor, setSwapAnchor] = useState<HTMLElement | null>(null)
   const playedInversions = useMemo(
     () => effectiveInversions(chords, inversions),
     [chords, inversions],
@@ -91,6 +114,7 @@ function App() {
 
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isRendering, setIsRendering] = useState(false)
   const [activeStep, setActiveStep] = useState<number | null>(null)
   const [activePreview, setActivePreview] = useState<number | null>(null)
 
@@ -130,6 +154,57 @@ function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 1800)
   }, [])
 
+  // drop the share hash after first import so reload doesn't re-apply it and
+  // future explicit shares can build a fresh URL.
+  useEffect(() => {
+    if (initialShared && typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      flashToast('imported shared progression')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const onShare = useCallback(async () => {
+    const url = buildShareUrl({
+      key,
+      scaleId,
+      moodId,
+      extension,
+      playMode,
+      bpm,
+      beatsPerChord,
+      drumStyleId,
+      instrument,
+      chords,
+      inversions,
+      chordBeats,
+      locked,
+    })
+    try {
+      await navigator.clipboard.writeText(url)
+      flashToast('share link copied')
+    } catch {
+      // older browsers / insecure contexts: drop the user into the location bar
+      // so they can copy manually.
+      window.prompt('copy link:', url)
+    }
+  }, [
+    key,
+    scaleId,
+    moodId,
+    extension,
+    playMode,
+    bpm,
+    beatsPerChord,
+    drumStyleId,
+    instrument,
+    chords,
+    inversions,
+    chordBeats,
+    locked,
+    flashToast,
+  ])
+
   // load instrument when changed
   useEffect(() => {
     let cancelled = false
@@ -150,6 +225,7 @@ function App() {
   // ---------- generation ----------
 
   const regenerate = useCallback(() => {
+    history.push(snap(), 'regen-all')
     const avoid = lastTemplateRef.current[moodId]
     const next = generateProgression({
       key,
@@ -162,16 +238,39 @@ function App() {
     if (typeof next.templateIdx === 'number') {
       lastTemplateRef.current[moodId] = next.templateIdx
     }
-    setChords(next.chords)
+    // preserve locked chords / inversions at their original positions.
+    setChords((prev) => {
+      const out = next.chords.slice()
+      for (let i = 0; i < out.length; i++) {
+        if (locked[i] && prev[i]) out[i] = prev[i]
+      }
+      return out
+    })
     setChordBeats(new Array(next.chords.length).fill(beatsPerChord))
-    setInversions(new Array(next.chords.length).fill(0))
+    setInversions((prev) => {
+      const out = new Array(next.chords.length).fill(0)
+      for (let i = 0; i < out.length; i++) {
+        if (locked[i] && prev[i] !== undefined) out[i] = prev[i]
+      }
+      return out
+    })
+    // resize locked to match new length, preserving values in place.
+    setLocked((prev) => {
+      if (prev.length === next.chords.length) return prev
+      const out = new Array(next.chords.length).fill(false)
+      for (let i = 0; i < Math.min(prev.length, out.length); i++) out[i] = prev[i]
+      return out
+    })
     setActiveSavedId(null)
     setActiveStep(null)
     setSelectedChordIdx(0)
-  }, [key, scaleId, moodId, length, extension, beatsPerChord])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, scaleId, moodId, length, extension, beatsPerChord, locked])
 
   const onMoodChange = useCallback(
     (m: MoodId) => {
+      if (m === moodId) return
+      history.push(snap(), 'mood')
       setMoodId(m)
       const mood = MOODS.find((x) => x.id === m)
       if (!mood) return
@@ -180,7 +279,8 @@ function App() {
       }
       if (mood.defaultExtension) setExtension(mood.defaultExtension)
     },
-    [scaleId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scaleId, moodId],
   )
 
   // remap existing degrees onto the new diatonic set when key/scale changes.
@@ -231,15 +331,115 @@ function App() {
       if (curr.length < length) return [...curr, ...new Array(length - curr.length).fill(0)]
       return curr.slice(0, length)
     })
+    // resize locked alongside, pad with false.
+    setLocked((curr) => {
+      if (curr.length === length) return curr
+      if (curr.length < length) return [...curr, ...new Array(length - curr.length).fill(false)]
+      return curr.slice(0, length)
+    })
     setSelectedChordIdx((s) => Math.min(s, length - 1))
     lastSeed.current = { key, scaleId, extension, length }
   }, [key, scaleId, extension, length, moodId, beatsPerChord])
 
   // propagate beatsPerChord into chordBeats whenever it changes.
+  // guarded by lastBpc so undo/redo can pre-stamp the expected value and
+  // restore the chordBeats array from the snapshot without this effect
+  // overwriting it.
+  const lastBpc = useRef(beatsPerChord)
   useEffect(() => {
+    if (lastBpc.current === beatsPerChord) return
+    lastBpc.current = beatsPerChord
     setChordBeats((curr) => new Array(curr.length || length).fill(beatsPerChord))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beatsPerChord])
+
+  // ---------- undo / redo ----------
+
+  // snapshot captures the full musical state of the progression: chord content,
+  // per-chord overrides (inversions / locks / beats), the generator settings
+  // that shape it (key / scale / mood / extension / length), and the playback
+  // settings that change how it sounds (bpm / instrument / play mode / drums).
+  // anything not in here (drawer state, selection, transport flags) is treated
+  // as transient and isn't part of the undo stack.
+  interface Snapshot {
+    chords: Chord[]
+    inversions: number[]
+    locked: boolean[]
+    chordBeats: number[]
+    key: PitchClass
+    scaleId: ScaleId
+    moodId: MoodId
+    extension: Extension
+    length: number
+    bpm: number
+    beatsPerChord: number
+    instrument: InstrumentId
+    playMode: PlayMode
+    drumStyleId: string
+  }
+  const history = useHistory<Snapshot>({ maxSize: 30, coalesceWindowMs: 700 })
+  // captureSnapshot is defined fresh each render so it always closes over the
+  // latest state. callers inside useCallback closures (regenerate, onMoodChange,
+  // doUndo, doRedo) capture an *older* captureSnapshot via stale deps, which
+  // would push out-of-date snapshots. routing through a ref that's pointed at
+  // the latest captureSnapshot every render side-steps that without needing to
+  // explode every useCallback dep array.
+  const captureSnapshot = (): Snapshot => ({
+    chords,
+    inversions,
+    locked,
+    chordBeats,
+    key,
+    scaleId,
+    moodId,
+    extension,
+    length,
+    bpm,
+    beatsPerChord,
+    instrument,
+    playMode,
+    drumStyleId,
+  })
+  const captureRef = useRef(captureSnapshot)
+  captureRef.current = captureSnapshot
+  const snap = () => captureRef.current()
+  const applySnapshot = (s: Snapshot) => {
+    // pre-stamp the effect guards so the broadcast effects don't overwrite
+    // the snapshot values we're about to restore.
+    lastSeed.current = { key: s.key, scaleId: s.scaleId, extension: s.extension, length: s.length }
+    lastBpc.current = s.beatsPerChord
+    setChords(s.chords)
+    setInversions(s.inversions)
+    setLocked(s.locked)
+    setChordBeats(s.chordBeats)
+    setKey(s.key)
+    setScaleId(s.scaleId)
+    setMoodId(s.moodId)
+    setExtension(s.extension)
+    setLength(s.length)
+    setBpm(s.bpm)
+    setBeatsPerChord(s.beatsPerChord)
+    setInstrument(s.instrument)
+    setPlayMode(s.playMode)
+    setDrumStyleId(s.drumStyleId)
+    setActiveSavedId(null)
+  }
+  const doUndo = useCallback(() => {
+    const prev = history.undo(snap())
+    if (prev) {
+      applySnapshot(prev)
+      flashToast('undo')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, flashToast])
+  const doRedo = useCallback(() => {
+    const next = history.redo(snap())
+    if (next) {
+      applySnapshot(next)
+      flashToast('redo')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, flashToast])
 
   // ---------- playback ----------
 
@@ -328,25 +528,75 @@ function App() {
   // ---------- editing ----------
 
   const removeChord = (idx: number) => {
+    history.push(snap(), 'remove')
     setChords((cs) => cs.filter((_, i) => i !== idx))
     setChordBeats((bs) => bs.filter((_, i) => i !== idx))
     setInversions((iv) => iv.filter((_, i) => i !== idx))
+    setLocked((lk) => lk.filter((_, i) => i !== idx))
     setLength((l) => Math.max(2, l - 1))
     setSelectedChordIdx((s) => (s >= idx && s > 0 ? s - 1 : s))
   }
-  const moveChord = (idx: number, dir: -1 | 1) => {
-    const swap = <T,>(arr: T[]): T[] => {
-      const j = idx + dir
-      if (j < 0 || j >= arr.length) return arr
+  const reorderChord = (from: number, to: number) => {
+    if (from === to) return
+    history.push(snap(), 'reorder')
+    const move = <T,>(arr: T[]): T[] => {
+      if (from < 0 || from >= arr.length || to < 0 || to >= arr.length) return arr
       const next = [...arr]
-      ;[next[idx], next[j]] = [next[j], next[idx]]
+      const [item] = next.splice(from, 1)
+      next.splice(to, 0, item)
       return next
     }
-    setChords(swap)
-    setChordBeats(swap)
-    setInversions(swap)
+    setChords(move)
+    setChordBeats(move)
+    setInversions(move)
+    setLocked(move)
+    setSelectedChordIdx((s) => {
+      if (s === from) return to
+      if (from < s && to >= s) return s - 1
+      if (from > s && to <= s) return s + 1
+      return s
+    })
+  }
+  const toggleLock = (idx: number) => {
+    history.push(snap(), 'lock')
+    setLocked((lk) => {
+      if (idx < 0 || idx >= lk.length) return lk
+      const next = [...lk]
+      next[idx] = !next[idx]
+      return next
+    })
+  }
+  const openSwap = (idx: number, anchor: HTMLElement) => {
+    setSwapIdx(idx)
+    setSwapAnchor(anchor)
+  }
+  const closeSwap = () => {
+    setSwapIdx(null)
+    setSwapAnchor(null)
+  }
+  const applySwap = (chord: Chord) => {
+    if (swapIdx === null) return
+    history.push(snap(), 'swap')
+    setChords((cs) => {
+      if (swapIdx < 0 || swapIdx >= cs.length) return cs
+      const next = [...cs]
+      next[swapIdx] = chord
+      return next
+    })
+    // chord changed entirely; reset inversion to auto so voice leading rebuilds.
+    setInversions((iv) => {
+      if (swapIdx < 0 || swapIdx >= iv.length) return iv
+      const next = [...iv]
+      next[swapIdx] = 0
+      return next
+    })
+    setActiveSavedId(null)
+    setSelectedChordIdx(swapIdx)
+    closeSwap()
+    flashToast(`swapped to ${chord.symbol.toLowerCase()}`)
   }
   const cycleInversion = (idx: number) => {
+    history.push(snap(), `invert-${idx}`)
     setInversions((iv) => {
       const next = [...iv]
       const chord = chords[idx]
@@ -357,6 +607,8 @@ function App() {
     })
   }
   const regenerateChord = (idx: number) => {
+    if (locked[idx]) return
+    history.push(snap(), `regen-${idx}`)
     setChords((cs) => {
       if (!cs[idx]) return cs
       const next = [...cs]
@@ -395,6 +647,7 @@ function App() {
       chords,
       chordBeats,
       inversions,
+      locked,
       bpm,
       beatsPerChord,
       instrument,
@@ -402,9 +655,10 @@ function App() {
     setSaved(storage.list())
     setActiveSavedId(item.id)
     flashToast('saved to this device')
-  }, [bpm, beatsPerChord, chordBeats, chords, extension, instrument, inversions, key, moodId, preferFlat, scaleId, flashToast])
+  }, [bpm, beatsPerChord, chordBeats, chords, extension, instrument, inversions, locked, key, moodId, preferFlat, scaleId, flashToast])
 
   const onLoadSaved = useCallback((item: SavedProgression) => {
+    history.clear()
     setKey(item.key)
     setScaleId(item.scaleId)
     setMoodId(item.moodId)
@@ -430,9 +684,15 @@ function App() {
     } else {
       setInversions(new Array(item.degrees.length).fill(0))
     }
+    if (item.locked && item.locked.length === item.degrees.length) {
+      setLocked(item.locked)
+    } else {
+      setLocked(new Array(item.degrees.length).fill(false))
+    }
     setSelectedChordIdx(0)
     setActiveSavedId(item.id)
     flashToast(`loaded "${item.name.toLowerCase()}"`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flashToast])
 
   const onRemoveSaved = useCallback(
@@ -473,6 +733,53 @@ function App() {
     flashToast,
   ])
 
+  const onRenderWav = useCallback(async () => {
+    if (chords.length === 0 || isRendering) return
+    setIsRendering(true)
+    flashToast('rendering audio…')
+    try {
+      // re-voice the chords the same way the live loop does, so the bounce
+      // matches what you just heard.
+      const voiced: string[][] = chords.map((c, i) => {
+        const inv = playedInversions[i] ?? 0
+        const midi = voiceChord(c, 4, { forcedInversion: inv })
+        return midi.map((m) => midiToNoteName(m))
+      })
+      const buffer = await renderProgression({
+        chordNotes: voiced,
+        bpm,
+        beatsPerChord,
+        chordBeats,
+        drumStyleId,
+        playMode,
+        instrument,
+      })
+      const wav = audioBufferToWav(buffer)
+      const filename = `tryad-${pcName(key, preferFlat).replace('#', 's')}-${scaleId}-${moodId}.wav`
+      downloadBlob(wav, filename, 'audio/wav')
+      flashToast('wav downloaded')
+    } catch {
+      flashToast('render failed')
+    } finally {
+      setIsRendering(false)
+    }
+  }, [
+    chords,
+    playedInversions,
+    bpm,
+    beatsPerChord,
+    chordBeats,
+    drumStyleId,
+    playMode,
+    instrument,
+    key,
+    preferFlat,
+    scaleId,
+    moodId,
+    isRendering,
+    flashToast,
+  ])
+
   // ---------- keyboard shortcuts ----------
 
   useEffect(() => {
@@ -496,11 +803,26 @@ function App() {
       } else if (e.key === 'e' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
         onExport()
+      } else if (
+        e.key.toLowerCase() === 'z' &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey
+      ) {
+        // cmd/ctrl + z = undo
+        e.preventDefault()
+        doUndo()
+      } else if (
+        // cmd/ctrl + shift + z = redo (mac), or cmd/ctrl + y = redo (windows)
+        ((e.key.toLowerCase() === 'z' && e.shiftKey) || e.key.toLowerCase() === 'y') &&
+        (e.metaKey || e.ctrlKey)
+      ) {
+        e.preventDefault()
+        doRedo()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, regenerate, onSave, onExport, toggleVisualizer])
+  }, [togglePlay, regenerate, onSave, onExport, toggleVisualizer, doUndo, doRedo])
 
   // ---------- toast ----------
 
@@ -516,20 +838,49 @@ function App() {
         {/* progression first (it's the product). controls underneath. */}
         <section className="flex flex-col gap-5">
           <div className="flex items-baseline justify-between gap-3 flex-wrap">
-            <div className="section-tag">01 / progression</div>
+            <div className="flex items-center gap-3">
+              <div className="section-tag">01 / progression</div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={doUndo}
+                  disabled={!history.canUndo}
+                  className="pill h-7 px-2 py-0 text-[11px] disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="undo (⌘Z)"
+                  aria-label="undo"
+                >
+                  <UndoIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={doRedo}
+                  disabled={!history.canRedo}
+                  className="pill h-7 px-2 py-0 text-[11px] disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="redo (⇧⌘Z)"
+                  aria-label="redo"
+                >
+                  <RedoIcon />
+                </button>
+              </div>
+            </div>
             <div className="hidden sm:flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-widest text-ink-dim">
-              <span className="kbd">tab</span>
-              <span>focus</span>
-              <span className="kbd ml-2">↵</span>
+              <span>drag to reorder</span>
+              <span className="text-ink-dim/50 mx-1">|</span>
+              <span className="kbd">↵</span>
               <span>preview</span>
+              <span className="kbd ml-2">s</span>
+              <span>swap</span>
               <span className="kbd ml-2">i</span>
               <span>invert</span>
+              <span className="kbd ml-2">l</span>
+              <span>lock</span>
               <span className="kbd ml-2">r</span>
               <span>reroll</span>
-              <span className="kbd ml-2">⇧ ←/→</span>
-              <span>move</span>
               <span className="kbd ml-2">del</span>
               <span>remove</span>
+              <span className="text-ink-dim/50 mx-1">|</span>
+              <span className="kbd">⌘z</span>
+              <span>undo</span>
             </div>
           </div>
           <div
@@ -555,9 +906,30 @@ function App() {
                   preferFlat={preferFlat}
                   onClick={() => previewChord(i)}
                   onRemove={chords.length > 2 ? () => removeChord(i) : undefined}
-                  onMoveLeft={i > 0 ? () => moveChord(i, -1) : undefined}
-                  onMoveRight={i < chords.length - 1 ? () => moveChord(i, 1) : undefined}
+                  onMove={(dir) => reorderChord(i, i + dir)}
                   onRegenerate={() => regenerateChord(i)}
+                  locked={locked[i] ?? false}
+                  onToggleLock={() => toggleLock(i)}
+                  onOpenSwap={(el) => openSwap(i, el)}
+                  isDragging={draggingIdx === i}
+                  isDragOver={dragOverIdx === i && draggingIdx !== null && draggingIdx !== i}
+                  onDragStart={() => {
+                    setDraggingIdx(i)
+                    setDragOverIdx(i)
+                  }}
+                  onDragOver={() => {
+                    if (draggingIdx === null) return
+                    if (dragOverIdx !== i) setDragOverIdx(i)
+                  }}
+                  onDrop={() => {
+                    if (draggingIdx !== null && draggingIdx !== i) reorderChord(draggingIdx, i)
+                    setDraggingIdx(null)
+                    setDragOverIdx(null)
+                  }}
+                  onDragEnd={() => {
+                    setDraggingIdx(null)
+                    setDragOverIdx(null)
+                  }}
                   beats={chordBeats[i]}
                   density={density}
                   inversion={inversions[i] ?? 0}
@@ -576,13 +948,22 @@ function App() {
             <Select<string>
               label="key"
               value={String(key)}
-              onChange={(v) => setKey(Number(v) as PitchClass)}
+              onChange={(v) => {
+                const next = Number(v) as PitchClass
+                if (next === key) return
+                history.push(snap(), 'key')
+                setKey(next)
+              }}
               options={ALL_KEYS.map((n, i) => ({ value: String(i), label: n }))}
             />
             <Select<ScaleId>
               label="scale"
               value={scaleId}
-              onChange={setScaleId}
+              onChange={(v) => {
+                if (v === scaleId) return
+                history.push(snap(), 'scale')
+                setScaleId(v)
+              }}
               options={SCALE_LIST.map((s) => ({ value: s.id, label: s.name }))}
             />
             <Select<MoodId>
@@ -594,16 +975,35 @@ function App() {
             <Select<Extension>
               label="voicing"
               value={extension}
-              onChange={setExtension}
+              onChange={(v) => {
+                if (v === extension) return
+                history.push(snap(), 'voicing')
+                setExtension(v)
+              }}
               options={EXTENSIONS.map((e) => ({ value: e.id, label: e.label }))}
             />
             <Select<PlayMode>
               label="play mode"
               value={playMode}
-              onChange={setPlayMode}
+              onChange={(v) => {
+                if (v === playMode) return
+                history.push(snap(), 'playMode')
+                setPlayMode(v)
+              }}
               groups={PLAY_MODE_GROUPS}
             />
-            <Slider label="chords" min={2} max={12} value={length} onChange={setLength} />
+            <Slider
+              label="chords"
+              min={2}
+              max={12}
+              value={length}
+              onChange={(v) => {
+                if (v === length) return
+                // 'length' label coalesces drag ticks into one entry.
+                history.push(snap(), 'length')
+                setLength(v)
+              }}
+            />
             <button
               type="button"
               onClick={regenerate}
@@ -620,19 +1020,38 @@ function App() {
           <Transport
             isPlaying={isPlaying}
             isLoading={isLoading}
+            isRendering={isRendering}
             onPlayToggle={togglePlay}
             onExport={onExport}
+            onRenderWav={onRenderWav}
             onSave={onSave}
+            onShare={onShare}
             visualizerOpen={drawerOpen}
             onToggleVisualizer={toggleVisualizer}
             bpm={bpm}
-            onBpmChange={setBpm}
+            onBpmChange={(v) => {
+              if (v === bpm) return
+              history.push(snap(), 'bpm')
+              setBpm(v)
+            }}
             beatsPerChord={beatsPerChord}
-            onBeatsChange={setBeatsPerChord}
+            onBeatsChange={(v) => {
+              if (v === beatsPerChord) return
+              history.push(snap(), 'beats')
+              setBeatsPerChord(v)
+            }}
             instrument={instrument}
-            onInstrumentChange={setInstrument}
+            onInstrumentChange={(v) => {
+              if (v === instrument) return
+              history.push(snap(), 'instrument')
+              setInstrument(v)
+            }}
             drumStyleId={drumStyleId}
-            onDrumStyleChange={setDrumStyleId}
+            onDrumStyleChange={(v) => {
+              if (v === drumStyleId) return
+              history.push(snap(), 'drumStyle')
+              setDrumStyleId(v)
+            }}
           />
         </section>
 
@@ -670,6 +1089,21 @@ function App() {
         onCycleInversion={() => cycleInversion(selectedChordIdx)}
       />
 
+      {swapIdx !== null && swapAnchor && chords[swapIdx] ? (
+        <ChordSwapPopover
+          anchor={swapAnchor}
+          current={chords[swapIdx]}
+          index={swapIdx}
+          progression={chords}
+          songKey={key}
+          scale={SCALES[scaleId]}
+          extension={extension}
+          preferFlat={preferFlat}
+          onSelect={applySwap}
+          onClose={closeSwap}
+        />
+      ) : null}
+
       {toast ? (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-bg-line bg-bg-card/95 backdrop-blur px-4 py-2 text-xs font-mono uppercase tracking-widest text-ink shadow-glow pointer-events-none">
           {toast}
@@ -688,6 +1122,24 @@ function DiceIcon() {
       <circle cx="10" cy="10" r="1" fill="currentColor" />
       <circle cx="7" cy="13" r="1" fill="currentColor" />
       <circle cx="13" cy="13" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 8L3 8L3 4" />
+      <path d="M3 8C5 5.5 8 4 11 4C14.5 4 17 6.5 17 10C17 13.5 14.5 16 11 16L8 16" />
+    </svg>
+  )
+}
+
+function RedoIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 8L17 8L17 4" />
+      <path d="M17 8C15 5.5 12 4 9 4C5.5 4 3 6.5 3 10C3 13.5 5.5 16 9 16L12 16" />
     </svg>
   )
 }

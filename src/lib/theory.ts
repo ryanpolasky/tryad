@@ -688,14 +688,14 @@ export interface Progression {
   templateIdx?: number
 }
 
-function nonDiatonicExtension(extension: Extension): Extension {
+export function nonDiatonicExtension(extension: Extension): Extension {
   return extension === 'ninth' ? 'seventh' : extension
 }
 
 // ---------- Non-diatonic chord builders ----------
 
 // V/X: root a P5 above X, always major, minor 7th if extension is 7th/9th.
-function makeSecondaryDominant(
+export function makeSecondaryDominant(
   key: PitchClass,
   scale: Scale,
   target: Chord,
@@ -762,7 +762,7 @@ function makeSecondaryDominant(
   }
 }
 
-interface BorrowedDef {
+export interface BorrowedDef {
   /** semitones above tonic */
   rootOffset: number
   quality: TriadQuality
@@ -771,7 +771,7 @@ interface BorrowedDef {
 }
 
 // borrowed chords from parallel minor (when source scale is major-ish).
-const BORROWED_FROM_MINOR: BorrowedDef[] = [
+export const BORROWED_FROM_MINOR: BorrowedDef[] = [
   { rootOffset: 5, quality: 'min', label: 'iv' },
   { rootOffset: 3, quality: 'maj', label: '♭III' },
   { rootOffset: 8, quality: 'maj', label: '♭VI' },
@@ -779,7 +779,7 @@ const BORROWED_FROM_MINOR: BorrowedDef[] = [
 ]
 
 // borrowed chords from parallel major (when source scale is minor-ish).
-const BORROWED_FROM_MAJOR: BorrowedDef[] = [
+export const BORROWED_FROM_MAJOR: BorrowedDef[] = [
   { rootOffset: 7, quality: 'maj', label: 'V' },
   { rootOffset: 5, quality: 'maj', label: 'IV' },
   { rootOffset: 9, quality: 'min', label: 'vi' },
@@ -787,11 +787,11 @@ const BORROWED_FROM_MAJOR: BorrowedDef[] = [
 
 const MAJORISH_SCALES = new Set<ScaleId>(['major', 'lydian', 'mixolydian'])
 
-function borrowedPoolFor(scaleId: ScaleId): BorrowedDef[] {
+export function borrowedPoolFor(scaleId: ScaleId): BorrowedDef[] {
   return MAJORISH_SCALES.has(scaleId) ? BORROWED_FROM_MINOR : BORROWED_FROM_MAJOR
 }
 
-function makeBorrowedChord(
+export function makeBorrowedChord(
   key: PitchClass,
   scale: Scale,
   def: BorrowedDef,

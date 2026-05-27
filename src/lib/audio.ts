@@ -74,9 +74,9 @@ function ensureGraph(): AudioGraph {
 function makeSamplerVoice(
   urls: Record<string, string>,
   baseUrl: string,
+  output: Tone.ToneAudioNode,
   release = 1.4,
 ): Voice & { loaded: Promise<void> } {
-  const graph = ensureGraph()
   let resolve!: () => void
   const loaded = new Promise<void>((r) => (resolve = r))
   const sampler = new Tone.Sampler({
@@ -85,7 +85,7 @@ function makeSamplerVoice(
     release,
     onload: () => resolve(),
   })
-  sampler.connect(graph.master)
+  sampler.connect(output)
   return {
     triggerAttackRelease(notes, duration, time, velocity) {
       sampler.triggerAttackRelease(notes, duration, time, velocity)
@@ -101,15 +101,14 @@ function makeSamplerVoice(
   }
 }
 
-function makePadVoice(): Voice & { loaded: Promise<void> } {
-  const graph = ensureGraph()
+function makePadVoice(output: Tone.ToneAudioNode): Voice & { loaded: Promise<void> } {
   const filter = new Tone.Filter({ frequency: 1500, Q: 0.8, type: 'lowpass' })
   const synth = new Tone.PolySynth(Tone.Synth, {
     oscillator: { type: 'fatsawtooth', count: 3, spread: 24 } as Tone.OmniOscillatorOptions,
     envelope: { attack: 0.6, decay: 0.4, sustain: 0.7, release: 1.8 },
   })
   synth.volume.value = -10
-  synth.chain(filter, graph.master)
+  synth.chain(filter, output)
   return {
     triggerAttackRelease(notes, duration, time, velocity) {
       synth.triggerAttackRelease(notes, duration, time, velocity)
@@ -126,14 +125,13 @@ function makePadVoice(): Voice & { loaded: Promise<void> } {
   }
 }
 
-function makePluckVoice(): Voice & { loaded: Promise<void> } {
-  const graph = ensureGraph()
+function makePluckVoice(output: Tone.ToneAudioNode): Voice & { loaded: Promise<void> } {
   const synth = new Tone.PolySynth(Tone.Synth, {
     oscillator: { type: 'triangle' } as Tone.OmniOscillatorOptions,
     envelope: { attack: 0.005, decay: 0.5, sustain: 0.1, release: 1.0 },
   })
   synth.volume.value = -8
-  synth.connect(graph.master)
+  synth.connect(output)
   return {
     triggerAttackRelease(notes, duration, time, velocity) {
       synth.triggerAttackRelease(notes, duration, time, velocity)
@@ -149,18 +147,21 @@ function makePluckVoice(): Voice & { loaded: Promise<void> } {
   }
 }
 
-function buildVoice(id: InstrumentId): Voice & { loaded: Promise<void> } {
+function buildVoice(
+  id: InstrumentId,
+  output: Tone.ToneAudioNode,
+): Voice & { loaded: Promise<void> } {
   switch (id) {
     case 'piano':
-      return makeSamplerVoice(PIANO_URLS, 'https://tonejs.github.io/audio/salamander/')
+      return makeSamplerVoice(PIANO_URLS, 'https://tonejs.github.io/audio/salamander/', output)
     case 'epiano':
-      return makeSamplerVoice(EPIANO_URLS, `${NBROS_BASE}piano/`)
+      return makeSamplerVoice(EPIANO_URLS, `${NBROS_BASE}piano/`, output)
     case 'guitar':
-      return makeSamplerVoice(GUITAR_URLS, `${NBROS_BASE}guitar-acoustic/`)
+      return makeSamplerVoice(GUITAR_URLS, `${NBROS_BASE}guitar-acoustic/`, output)
     case 'pad':
-      return makePadVoice()
+      return makePadVoice(output)
     case 'pluck':
-      return makePluckVoice()
+      return makePluckVoice(output)
   }
 }
 
@@ -171,16 +172,14 @@ interface DrumKit {
   dispose: () => void
 }
 
-function buildDrumKit(): DrumKit {
-  const graph = ensureGraph()
-
+function buildDrumKit(output: Tone.ToneAudioNode): DrumKit {
   const kick = new Tone.MembraneSynth({
     pitchDecay: 0.04,
     octaves: 4,
     envelope: { attack: 0.001, decay: 0.42, sustain: 0.01, release: 0.5 },
   })
   kick.volume.value = -2
-  kick.connect(graph.drumBus)
+  kick.connect(output)
 
   const snareNoise = new Tone.NoiseSynth({
     noise: { type: 'white' },
@@ -188,7 +187,7 @@ function buildDrumKit(): DrumKit {
   })
   const snareHP = new Tone.Filter(1500, 'highpass')
   snareNoise.connect(snareHP)
-  snareHP.connect(graph.drumBus)
+  snareHP.connect(output)
   snareNoise.volume.value = -6
 
   const snareBody = new Tone.MembraneSynth({
@@ -197,7 +196,7 @@ function buildDrumKit(): DrumKit {
     envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
   })
   snareBody.volume.value = -16
-  snareBody.connect(graph.drumBus)
+  snareBody.connect(output)
 
   const hat = new Tone.MetalSynth({
     envelope: { attack: 0.001, decay: 0.045, release: 0.01 },
@@ -207,7 +206,7 @@ function buildDrumKit(): DrumKit {
     octaves: 1.5,
   })
   hat.volume.value = -20
-  hat.connect(graph.drumBus)
+  hat.connect(output)
 
   const open = new Tone.MetalSynth({
     envelope: { attack: 0.001, decay: 0.22, release: 0.08 },
@@ -217,7 +216,7 @@ function buildDrumKit(): DrumKit {
     octaves: 1.5,
   })
   open.volume.value = -22
-  open.connect(graph.drumBus)
+  open.connect(output)
 
   const ride = new Tone.MetalSynth({
     envelope: { attack: 0.001, decay: 0.3, release: 0.2 },
@@ -227,7 +226,7 @@ function buildDrumKit(): DrumKit {
     octaves: 1.2,
   })
   ride.volume.value = -22
-  ride.connect(graph.drumBus)
+  ride.connect(output)
 
   const rim = new Tone.MembraneSynth({
     pitchDecay: 0.008,
@@ -235,7 +234,7 @@ function buildDrumKit(): DrumKit {
     envelope: { attack: 0.001, decay: 0.04, sustain: 0 },
   })
   rim.volume.value = -14
-  rim.connect(graph.drumBus)
+  rim.connect(output)
 
   return {
     trigger(piece, time, velocity) {
@@ -509,7 +508,7 @@ class AudioEngine {
 
   async setInstrument(id: InstrumentId): Promise<void> {
     if (this.current === id && this.voice) return
-    const next = buildVoice(id)
+    const next = buildVoice(id, ensureGraph().master)
     await next.loaded
     if (this.voice) this.voice.dispose()
     this.voice = next
@@ -605,7 +604,7 @@ class AudioEngine {
     // aligned with the chord cycle. avoids LCM phase-drift between unequal loops.
     const style = getDrumStyle(drumStyleId)
     if (style.id !== 'off') {
-      if (!this.drumKit) this.drumKit = buildDrumKit()
+      if (!this.drumKit) this.drumKit = buildDrumKit(ensureGraph().drumBus)
       const drumKit = this.drumKit
       const oneLoop = buildDrumEvents(style, bpm)
       const drumLoopSeconds = style.bars * 4 * secondsPerBeat
@@ -657,6 +656,91 @@ function buildDrumEvents(style: DrumStyle, bpm: number): DrumEvent[] {
     })
   })
   return events
+}
+
+// render the same chord + drum schedule to an AudioBuffer for export.
+// builds its own graph inside Tone.Offline so it doesn't conflict with the
+// live engine. samples re-fetch but hit the browser cache.
+export async function renderProgression(opts: {
+  chordNotes: string[][]
+  bpm: number
+  beatsPerChord: number
+  chordBeats?: number[]
+  drumStyleId: string
+  playMode?: PlayMode
+  instrument: InstrumentId
+  /** seconds of tail beyond the loop to capture reverb decay. */
+  tailSeconds?: number
+}): Promise<AudioBuffer> {
+  const playMode: PlayMode = opts.playMode ?? 'block'
+  const secondsPerBeat = 60 / opts.bpm
+  const beats = opts.chordNotes.map((_, i) => opts.chordBeats?.[i] ?? opts.beatsPerChord)
+  const durations = beats.map((b) => b * secondsPerBeat)
+  const starts: number[] = []
+  let acc = 0
+  for (const d of durations) {
+    starts.push(acc)
+    acc += d
+  }
+  const progressionSeconds = acc
+  const tail = opts.tailSeconds ?? 2.5
+  const totalDuration = progressionSeconds + tail
+
+  const rendered = await Tone.Offline(async (ctx) => {
+    // build a self-contained graph for this offline context.
+    const limiter = new Tone.Limiter(-1).toDestination()
+    const reverb = new Tone.Reverb({ decay: 2.6, preDelay: 0.02, wet: 0.22 }).connect(limiter)
+    // wait for the reverb impulse to generate inside the offline context.
+    await reverb.generate()
+    const master = new Tone.Gain(0.85).connect(reverb)
+    const drumBus = new Tone.Gain(0.95).connect(limiter)
+
+    const voice = buildVoice(opts.instrument, master)
+    await voice.loaded
+
+    const chordEvents: ChordEvent[] = []
+    opts.chordNotes.forEach((notes, idx) => {
+      const subs = buildChordSubEvents(
+        notes,
+        starts[idx],
+        durations[idx],
+        playMode,
+        secondsPerBeat,
+        idx,
+      )
+      chordEvents.push(...subs)
+    })
+    const chordPart = new Tone.Part<ChordEvent>((time, value) => {
+      voice.triggerAttackRelease(value.notes, value.duration, time, 0.75)
+    }, chordEvents)
+    chordPart.start(0)
+
+    const style = getDrumStyle(opts.drumStyleId)
+    if (style.id !== 'off') {
+      const drumKit = buildDrumKit(drumBus)
+      const oneLoop = buildDrumEvents(style, opts.bpm)
+      const drumLoopSeconds = style.bars * 4 * secondsPerBeat
+      const repeats = Math.max(1, Math.ceil(progressionSeconds / drumLoopSeconds))
+      const drumEvents: DrumEvent[] = []
+      for (let r = 0; r < repeats; r++) {
+        const offset = r * drumLoopSeconds
+        for (const e of oneLoop) {
+          if (offset + e.time >= progressionSeconds) continue
+          drumEvents.push({ time: offset + e.time, piece: e.piece, velocity: e.velocity })
+        }
+      }
+      const drumPart = new Tone.Part<DrumEvent>((time, value) => {
+        drumKit.trigger(value.piece, time, value.velocity)
+      }, drumEvents)
+      drumPart.start(0)
+    }
+
+    ctx.transport.bpm.value = opts.bpm
+    ctx.transport.start(0)
+  }, totalDuration)
+
+  // ToneAudioBuffer wraps the native AudioBuffer.
+  return rendered.get() as AudioBuffer
 }
 
 export const audio = new AudioEngine()
