@@ -4,13 +4,14 @@ import { StudioBottomPanel } from './components/studio/StudioBottomPanel'
 import { StudioTimeline } from './components/studio/StudioTimeline'
 import { StudioTopBar } from './components/studio/StudioTopBar'
 import { StudioTransport } from './components/studio/StudioTransport'
+import { StudioMenuProvider } from './components/studio/StudioMenuContext'
 import type { StudioTool } from './components/studio/StudioTransport'
 import type { VisualizerMode } from './components/ChordVisualizer'
 import { songAudio, renderSong } from './lib/audio'
 import {
   createDefaultProject, createId, createProjectStore, loadCurrentProject, loadProjects,
   makeSection, nextSectionName, projectReducer, saveCurrentProject, saveProjectList,
-  transposeProject,
+  sectionRoleForName, transposeProject,
 } from './lib/project'
 import type { ChordSlot, Project, Section, TrackConfig, TrackKind } from './lib/project'
 import { generateBass, generateChords, generateDrums, generateMelody, generateSectionTracks, generateVibeProject, regenerateChordInProgression } from './lib/generate'
@@ -36,7 +37,7 @@ function App() {
   const [panelTab, setPanelTab] = useState<'In Key' | 'Voicings' | 'Visualizer'>('In Key')
   const [editor, setEditor] = useState<'melody' | 'bass' | 'drums' | null>(null)
   const [roman, setRoman] = useState(false)
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 0.65 : 1)
   const [playheadBeat, setPlayheadBeat] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [playingChord, setPlayingChord] = useState<{ sectionId: string; index: number } | null>(null)
@@ -49,11 +50,12 @@ function App() {
   const animationRef = useRef<number | null>(null)
   const playingRef = useRef(false)
   const previousHashRef = useRef('')
+  const previousLiveProjectRef = useRef(project)
 
   const notify = useCallback((message: string) => {
     setToast(message)
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
-    toastTimer.current = window.setTimeout(() => setToast(''), 2400)
+    toastTimer.current = window.setTimeout(() => setToast(''), 1800)
   }, [])
 
   useEffect(() => {
@@ -110,12 +112,28 @@ function App() {
     } else {
       playingRef.current = false
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current)
-      setPlayheadBeat(0)
-    }
+      }
     return () => {
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current)
     }
   }, [playing])
+
+  const onChordPlayback = useCallback((id: string, index: number) => {
+    setPlayingChord({ sectionId: id, index })
+    if (id === viewSectionId) setSelectedChord(index)
+  }, [viewSectionId])
+
+  useEffect(() => {
+    const previous = previousLiveProjectRef.current
+    previousLiveProjectRef.current = project
+    if (!playing || previous === project) return
+    const sectionIds = project.loopSection ? [project.activeSectionId] : project.sections.map((item) => item.id)
+    if (project.loopSection && previous.activeSectionId !== project.activeSectionId) {
+      songAudio.switchSectionAtNextBar({ project, sectionId: project.activeSectionId, onChord: onChordPlayback })
+    } else {
+      songAudio.scheduleLiveUpdate({ project, sectionIds, onChord: onChordPlayback })
+    }
+  }, [onChordPlayback, playing, project])
 
   const updateProject = useCallback((next: Project, label?: string) => {
     dispatch({ type: 'update', project: next, label })
@@ -124,6 +142,21 @@ function App() {
   const updateSection = useCallback((updated: Section, label?: string) => {
     updateProject({ ...project, sections: project.sections.map((item) => item.id === updated.id ? updated : item) }, label)
   }, [project, updateProject])
+
+  const regenerateSection = useCallback((target: Section) => {
+    const generated = generateSectionTracks(project, target)
+    updateSection(generated, 'regenerate-section')
+  }, [project, updateSection])
+
+  const regenerateAllSections = useCallback(() => {
+    const sections: Section[] = []
+    project.sections.forEach((item, index) => {
+      const workingProject = { ...project, sections: [...sections, ...project.sections.slice(index + 1)] }
+      sections.push(generateSectionTracks(workingProject, item))
+    })
+    updateProject({ ...project, sections }, 'regenerate-song')
+    notify('Song regenerated')
+  }, [notify, project, updateProject])
 
   const activeSlot = section.chords[selectedChord]
   const playbackSlot = playingChord
@@ -152,7 +185,11 @@ function App() {
     songAudio.playNotes([midiToNoteName(midi)])
   }
 
-  const sectionAction = (action: 'duplicate' | 'regenerate' | 'delete' | 'rename', item: Section) => {
+  const sectionAction = (action: 'duplicate' | 'regenerate' | 'regenerate-all' | 'delete' | 'rename', item: Section) => {
+    if (action === 'regenerate-all') {
+      regenerateAllSections()
+      return
+    }
     if (action === 'delete') {
       if (project.sections.length === 1) return notify('A project needs at least one section')
       const sections = project.sections.filter((candidate) => candidate.id !== item.id)
@@ -162,7 +199,7 @@ function App() {
     }
     if (action === 'rename') {
       const name = window.prompt('Section name', item.name)?.trim()
-      if (name) updateSection({ ...item, name })
+      if (name) updateSection({ ...item, name, role: sectionRoleForName(name) })
       return
     }
     if (action === 'duplicate') {
@@ -174,8 +211,8 @@ function App() {
       setViewSectionId(copy.id)
       return
     }
-    const generated = generateChords(project, item)
-    updateSection(generated)
+    regenerateSection(item)
+    notify(`${item.name} regenerated`)
   }
 
   const addSection = () => {
@@ -222,13 +259,13 @@ function App() {
       volume: 0.78,
       mute: false,
       solo: false,
-      style: kind === 'bass' ? 'root' : kind === 'drums' ? 'boom' : 'flowing',
+      style: kind === 'bass' ? 'groove' : kind === 'drums' ? 'boom' : 'flowing',
     }
     const next = { ...project, tracks: [...project.tracks, track] }
     const updatedSection = kind === 'melody'
       ? { ...section, melody: generateMelody(section, project.key, project.scaleId, 'flowing') }
       : kind === 'bass'
-        ? { ...section, bass: generateBass(section, 'root') }
+        ? { ...section, bass: generateBass(section, 'groove', undefined, project.key, project.scaleId) }
         : { ...section, drums: generateDrums(section, 'boom') }
     updateProject({ ...next, sections: next.sections.map((item) => item.id === section.id ? updatedSection : item) })
   }
@@ -243,12 +280,17 @@ function App() {
   }
 
   const generateTrack = useCallback((kind: TrackKind) => {
+    const track = project.tracks.find((item) => item.kind === kind)
+    if (track?.locked) {
+      notify(`${kind[0].toUpperCase()}${kind.slice(1)} track is locked`)
+      return
+    }
     const updated = kind === 'chords'
       ? generateChords(project, section)
       : kind === 'melody'
         ? { ...section, melody: generateMelody(section, project.key, project.scaleId, (project.tracks.find((track) => track.kind === kind)?.style as 'flowing' | 'rhythmic' | 'sparse' | 'arp') ?? 'flowing') }
         : kind === 'bass'
-          ? { ...section, bass: generateBass(section, (project.tracks.find((track) => track.kind === kind)?.style as 'root' | 'pulse' | 'rootFifth' | 'octave' | 'walking') ?? 'root') }
+          ? { ...section, bass: generateBass(section, (track?.style as 'groove' | 'root' | 'pulse' | 'rootFifth' | 'octave' | 'walking') ?? 'groove', undefined, project.key, project.scaleId) }
           : { ...section, drums: generateDrums(section, project.tracks.find((track) => track.kind === kind)?.style ?? 'boom') }
     updateSection(updated)
     notify(`${kind[0].toUpperCase()}${kind.slice(1)} regenerated`)
@@ -270,6 +312,11 @@ function App() {
   }, [project, section, updateChord])
 
   const generateVibe = (vibe: string) => {
+    if (!vibe.trim()) {
+      regenerateSection(section)
+      notify(`${section.name} regenerated`)
+      return
+    }
     const result = generateVibeProject(project, vibe)
     updateProject(result.project)
     setViewSectionId(result.project.activeSectionId)
@@ -288,28 +335,27 @@ function App() {
     const sectionIds = project.loopSection ? [section.id] : project.sections.map((item) => item.id)
     songAudio.scheduleSong({
       project,
-      startBeat: 0,
+      startBeat: playheadBeat,
       sectionIds,
-      onChord: (id, index) => {
-        setPlayingChord({ sectionId: id, index })
-        if (id === viewSectionId) setSelectedChord(index)
-      },
+      onChord: onChordPlayback,
     })
     setPlaying(true)
-  }, [playing, project, section, viewSectionId])
+  }, [playing, project, section, playheadBeat, onChordPlayback])
 
   const seek = async (beat: number) => {
     setPlayheadBeat(beat)
+    if (playing) {
+      const sectionIds = project.loopSection ? [section.id] : project.sections.map((item) => item.id)
+      songAudio.scheduleLiveUpdate({ project, startBeat: beat, sectionIds, onChord: onChordPlayback })
+      return
+    }
     await songAudio.start()
     await songAudio.setTracks(project.tracks, project.masterVolume)
     songAudio.scheduleSong({
       project,
       startBeat: beat,
       sectionIds: [section.id],
-      onChord: (id, index) => {
-        setPlayingChord({ sectionId: id, index })
-        if (id === viewSectionId) setSelectedChord(index)
-      },
+      onChord: onChordPlayback,
     })
     setPlaying(true)
   }
@@ -400,12 +446,16 @@ function App() {
     setPaletteOpen(true)
   }
 
-  const skipToStart = () => {
-    songAudio.stop()
-    setPlaying(false)
+  const skipToStart = useCallback(() => {
+    if (playing) {
+      const sectionIds = project.loopSection ? [section.id] : project.sections.map((item) => item.id)
+      songAudio.scheduleLiveUpdate({ project, startBeat: 0, sectionIds, onChord: onChordPlayback })
+    } else {
+      songAudio.stop()
+    }
     setPlayheadBeat(0)
     setPlayingChord(null)
-  }
+  }, [onChordPlayback, playing, project, section])
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -428,12 +478,19 @@ function App() {
       } else if (event.key === 'Escape') {
         setPaletteOpen(false)
         setEditor(null)
+      } else if (event.key === 'Home') {
+        event.preventDefault()
+        skipToStart()
       } else if (event.key === '?') {
         setShortcutsOpen((open) => !open)
       } else if (event.key.toLowerCase() === 'p') {
         setPaletteOpen((open) => !open)
       } else if (!editor && event.key.toLowerCase() === 'g') {
-        generateTrack('chords')
+        if (event.shiftKey) regenerateAllSections()
+        else {
+          regenerateSection(section)
+          notify(`${section.name} regenerated`)
+        }
       } else if (!editor && event.key === 'Enter' && activeSlot) {
         void previewChord(activeSlot.chord, activeSlot)
       } else if (!editor && (event.key === 'Delete' || event.key === 'Backspace')) {
@@ -454,10 +511,11 @@ function App() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [play, project, notify, exportProject, activeSlot, previewChord, deleteChord, selectedChord, rerollChord, updateChord, section.chords.length, moveChord, generateTrack, editor])
+  }, [play, project, notify, exportProject, activeSlot, previewChord, deleteChord, selectedChord, rerollChord, updateChord, section, section.chords.length, moveChord, generateTrack, regenerateAllSections, regenerateSection, skipToStart, editor])
 
   const savedProjects = useMemo(() => projects.filter((item) => item.id !== project.id).map((item) => ({ id: item.id, title: item.title, project: item })), [projects, project.id])
   return (
+    <StudioMenuProvider>
     <main className="studio-app">
       <StudioTopBar
         project={project}
@@ -563,11 +621,12 @@ function App() {
         <section className="studio-shortcuts-modal" onClick={(event) => event.stopPropagation()}>
           <button className="studio-modal-close" type="button" aria-label="Close shortcuts" onClick={() => setShortcutsOpen(false)}>×</button>
           <span className="studio-eyebrow">QUICK REFERENCE</span><h2>Keyboard shortcuts</h2>
-          {[['Space', 'Play / stop'], ['G', 'Generate section'], ['Enter', 'Preview selected chord'], ['← / →', 'Select chord'], ['Shift + ← / →', 'Move chord'], ['Delete', 'Remove chord'], ['I', 'Cycle inversion'], ['L', 'Lock chord'], ['R', 'Reroll chord'], ['⌘ / Ctrl + Z', 'Undo'], ['⌘ / Ctrl + Shift + Z', 'Redo'], ['⌘ / Ctrl + S', 'Save locally'], ['⌘ / Ctrl + E', 'Export MIDI'], ['Esc', 'Close editor'], ['?', 'Show shortcuts']].map(([key, action]) => <div className="studio-shortcut-row" key={key}><kbd>{key}</kbd><span>{action}</span></div>)}
+          {[['Space', 'Play / stop'], ['G', 'Regenerate section'], ['Shift + G', 'Regenerate song'], ['Home', 'Skip to start'], ['Enter', 'Preview selected chord'], ['← / →', 'Select chord'], ['Shift + ← / →', 'Move chord'], ['Delete', 'Remove chord'], ['I', 'Cycle inversion'], ['L', 'Lock chord'], ['R', 'Reroll chord'], ['⌘ / Ctrl + Z', 'Undo'], ['⌘ / Ctrl + Shift + Z', 'Redo'], ['⌘ / Ctrl + S', 'Save locally'], ['⌘ / Ctrl + E', 'Export MIDI'], ['Esc', 'Close editor'], ['?', 'Show shortcuts']].map(([key, action]) => <div className="studio-shortcut-row" key={key}><kbd>{key}</kbd><span>{action}</span></div>)}
         </section>
       </div> : null}
       {toast ? <div className="studio-toast" role="status">{toast}</div> : null}
     </main>
+    </StudioMenuProvider>
   )
 }
 

@@ -6,6 +6,7 @@ import { MOODS, SCALE_LIST } from '../../lib/theory'
 import type { MoodId } from '../../lib/theory'
 import { sectionLengthLabel } from '../../lib/project'
 import type { ChordSlot, Project, Section, TrackConfig, TrackKind } from '../../lib/project'
+import { useStudioMenu } from './useStudioMenu'
 
 const TRACK_LABELS: Record<TrackKind, string> = { chords: 'Chords', melody: 'Melody', bass: 'Bass', drums: 'Drums' }
 const BEAT_WIDTH = 68
@@ -19,7 +20,7 @@ interface StudioTimelineProps {
   roman: boolean
   onZoom: (zoom: number) => void
   onSelectSection: (id: string) => void
-  onSectionAction: (action: 'duplicate' | 'regenerate' | 'delete' | 'rename', section: Section) => void
+  onSectionAction: (action: 'duplicate' | 'regenerate' | 'regenerate-all' | 'delete' | 'rename', section: Section) => void
   onAddSection: () => void
   onUpdateTrack: (track: TrackConfig) => void
   onUpdateGeneratorProject: (patch: Partial<Pick<Project, 'moodId' | 'scaleId'>>) => void
@@ -45,9 +46,12 @@ export function StudioTimeline(props: StudioTimelineProps) {
     onAddTrack, onSelectChord, onPreviewChord, onOpenPalette, onUpdateChord, onDeleteChord,
     onRerollChord, onMoveChord, onAddChord, onSeek, onOpenClip, onOpenGenerator,
   } = props
-  const [sectionMenu, setSectionMenu] = useState<string | null>(null)
-  const [trackMenu, setTrackMenu] = useState<TrackKind | null>(null)
-  const [settings, setSettings] = useState<TrackKind | null>(null)
+  const { openMenu, setOpenMenu } = useStudioMenu()
+  const sectionMenu = openMenu?.startsWith('section:') ? openMenu.slice(8) : null
+  const trackMenu = openMenu?.startsWith('track:') ? openMenu.slice(6) as TrackKind : null
+  const settings = openMenu?.startsWith('settings:') ? openMenu.slice(9) as TrackKind : null
+  const setSectionMenu = (id: string | null) => setOpenMenu(id ? `section:${id}` : null)
+  const setTrackMenu = (kind: TrackKind | null) => setOpenMenu(kind ? `track:${kind}` : null)
   const [dragChord, setDragChord] = useState<number | null>(null)
   const [draftResize, setDraftResize] = useState<{ index: number; beats: number } | null>(null)
   const tileRefs = useRef(new Map<TrackKind, HTMLDivElement>())
@@ -95,7 +99,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
     <div className="studio-workspace">
       <div className="studio-section-tabs">
         {project.sections.map((item, index) => (
-          <div className={`studio-section-tab ${item.id === section.id ? 'active' : ''}`} key={item.id}>
+          <div className={`studio-section-tab ${item.id === section.id ? 'active' : ''}`} key={item.id} data-studio-menu-root>
             <button type="button" onClick={() => onSelectSection(item.id)}>{index + 1} <span>{item.name}</span></button>
             <button
               type="button"
@@ -105,11 +109,11 @@ export function StudioTimeline(props: StudioTimelineProps) {
             >⋯</button>
             {sectionMenu === item.id ? (
               <div className="studio-popover studio-section-menu">
-                {(['rename', 'duplicate', 'regenerate', 'delete'] as const).map((action) => (
+                {(['rename', 'duplicate', 'regenerate', 'regenerate-all', 'delete'] as const).map((action) => (
                   <button type="button" key={action} onClick={() => {
                     onSectionAction(action, item)
                     setSectionMenu(null)
-                  }}>{action === 'regenerate' ? 'Regenerate chords' : action[0].toUpperCase() + action.slice(1)}</button>
+                  }}>{action === 'regenerate' ? 'Regenerate section' : action === 'regenerate-all' ? 'Regenerate all sections' : action[0].toUpperCase() + action.slice(1)}</button>
                 ))}
               </div>
             ) : null}
@@ -138,7 +142,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
         </div>
         {tracks.map((track) => (
           <div className="studio-track-row" key={track.kind}>
-            <div className="studio-track-head">
+            <div className="studio-track-head" data-studio-menu-root>
               <div className="studio-track-main">
                 <div className="studio-track-title">
                   <TrackIcon kind={track.kind} />
@@ -158,6 +162,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
                   onChange={(event) => onUpdateTrack({ ...track, volume: Number(event.target.value) })}
                 />
                 <div className="studio-track-actions">
+                  <button className={`studio-track-lock ${track.locked ? 'on' : ''}`} type="button" aria-label={`${track.locked ? 'Unlock' : 'Lock'} ${track.kind} track`} title={track.locked ? 'Unlock track' : 'Lock track'} onClick={() => onUpdateTrack({ ...track, locked: !track.locked })}><Icon name={track.locked ? 'lock' : 'unlock'} /></button>
                   <button className={`studio-ms ${track.mute ? 'on' : ''}`} type="button" aria-label={`Mute ${track.kind}`} onClick={() => onUpdateTrack({ ...track, mute: !track.mute })}>M</button>
                   <button className={`studio-ms ${track.solo ? 'on' : ''}`} type="button" aria-label={`Solo ${track.kind}`} onClick={() => onUpdateTrack({ ...track, solo: !track.solo })}>S</button>
                   <button className="studio-track-more" type="button" aria-label={`${track.kind} track menu`} onClick={() => setTrackMenu(trackMenu === track.kind ? null : track.kind)}><Icon name="more" /></button>
@@ -180,9 +185,9 @@ export function StudioTimeline(props: StudioTimelineProps) {
               <div className="studio-generator-tile" ref={(node) => {
                 if (node) tileRefs.current.set(track.kind, node)
                 else tileRefs.current.delete(track.kind)
-              }}>
+              }} data-studio-menu-root>
                 <button type="button" aria-label={`Regenerate ${track.kind}`} onClick={() => onOpenGenerator(track.kind)}><Icon name="refresh" /></button>
-                <button type="button" aria-label={`${track.kind} generator settings`} onClick={() => setSettings(settings === track.kind ? null : track.kind)}><Icon name="settings" /></button>
+                <button type="button" aria-label={`${track.kind} generator settings`} onClick={() => setOpenMenu(settings === track.kind ? null : `settings:${track.kind}`)}><Icon name="settings" /></button>
               </div>
             </div>
             <div className="studio-lane-wrap">
@@ -197,11 +202,13 @@ export function StudioTimeline(props: StudioTimelineProps) {
                   <div className="studio-chord-lane" style={{ width: sectionWidth }}>
                     {section.chords.map((slot, index) => {
                       const beats = draftResize?.index === index ? draftResize.beats : slot.beats
+                      const chordMenuId = `chord:${section.id}:${index}`
                       return (
                         <div
                           className={`studio-chord-block ${selectedChord === index ? 'selected' : ''} ${slot.locked ? 'locked' : ''}`}
                           style={{ width: beats * pxPerBeat }}
                           key={`${section.id}-${index}-${slot.chord.symbol}`}
+                          data-studio-menu-root
                           draggable
                           onDragStart={(event) => { setDragChord(index); event.dataTransfer.setData('text/plain', String(index)) }}
                           onDragOver={(event) => event.preventDefault()}
@@ -211,11 +218,19 @@ export function StudioTimeline(props: StudioTimelineProps) {
                         >
                           <strong>{roman ? slot.chord.roman : slot.chord.symbol}</strong>
                           {!roman ? <small>{slot.chord.roman}</small> : null}
-                          <div className="studio-chord-actions">
+                          <div className={`studio-chord-actions ${beats * pxPerBeat < 90 ? 'compact' : ''}`}>
                             <button type="button" aria-label={`Regenerate chord ${index + 1}`} title="Regenerate" onClick={(event) => { event.stopPropagation(); onRerollChord(index) }}><Icon name="refresh" /></button>
                             <button type="button" aria-label={`${slot.locked ? 'Unlock' : 'Lock'} chord ${index + 1}`} title={slot.locked ? 'Unlock' : 'Lock'} onClick={(event) => { event.stopPropagation(); onUpdateChord(index, { ...slot, locked: !slot.locked }) }}><Icon name={slot.locked ? 'unlock' : 'lock'} /></button>
                             {section.chords.length > 1 ? <button type="button" aria-label={`Delete chord ${index + 1}`} title="Delete" onClick={(event) => { event.stopPropagation(); onDeleteChord(index) }}><Icon name="trash" /></button> : null}
+                            <button type="button" className="studio-chord-more" aria-label={`More actions for chord ${index + 1}`} onClick={(event) => { event.stopPropagation(); setOpenMenu(openMenu === chordMenuId ? null : chordMenuId) }}>⋯</button>
                           </div>
+                          {openMenu === chordMenuId ? (
+                            <div className="studio-popover studio-chord-menu">
+                              <button type="button" onClick={(event) => { event.stopPropagation(); onRerollChord(index); setOpenMenu(null) }}>Regenerate chord</button>
+                              <button type="button" onClick={(event) => { event.stopPropagation(); onUpdateChord(index, { ...slot, locked: !slot.locked }); setOpenMenu(null) }}>{slot.locked ? 'Unlock chord' : 'Lock chord'}</button>
+                              {section.chords.length > 1 ? <button type="button" onClick={(event) => { event.stopPropagation(); onDeleteChord(index); setOpenMenu(null) }}>Delete chord</button> : null}
+                            </div>
+                          ) : null}
                           {selectedChord === index ? (
                             <>
                               <button type="button" className="studio-chord-edit" onClick={(event) => { event.stopPropagation(); onOpenPalette(index) }}>Edit</button>
@@ -283,10 +298,10 @@ export function StudioTimeline(props: StudioTimelineProps) {
           track={tracks.find((item) => item.kind === settings)!}
           project={project}
           anchor={tileRefs.current.get(settings) ?? null}
-          onClose={() => setSettings(null)}
+          onClose={() => setOpenMenu(null)}
           onUpdateTrack={onUpdateTrack}
           onUpdateProject={onUpdateGeneratorProject}
-          onRegenerate={() => { onOpenGenerator(settings); setSettings(null) }}
+          onRegenerate={() => { onOpenGenerator(settings); setOpenMenu(null) }}
         />
       ) : null}
     </div>
@@ -311,7 +326,7 @@ function Icon({ name }: { name: string }) {
           : name === 'bass' ? <><path d="M4 18V6" /><path d="M8 16V8" /><path d="M12 19V5" /><path d="M16 15V9" /><path d="M20 17V7" /></>
             : name === 'drums' ? <><circle cx="12" cy="12" r="8" /><path d="m6.4 6.4 11.2 11.2M17.6 6.4 6.4 17.6" /></>
               : name === 'refresh' ? <><path d="M20 7v5h-5" /><path d="M4.5 10a7.5 7.5 0 0 1 13-3L20 10M4 17v-5h5" /><path d="M19.5 14a7.5 7.5 0 0 1-13 3L4 14" /></>
-                : name === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" fill="#16191e" /><circle cx="15" cy="12" r="2" fill="#16191e" /><circle cx="11" cy="18" r="2" fill="#16191e" /></>
+                : name === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" fill="var(--color-d16c084c)" /><circle cx="15" cy="12" r="2" fill="var(--color-d16c084c)" /><circle cx="11" cy="18" r="2" fill="var(--color-d16c084c)" /></>
                   : name === 'more' ? <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>
                     : name === 'lock' || name === 'unlock' ? <><rect x="5" y="10" width="14" height="11" rx="2" /><path d={name === 'lock' ? 'M8 10V7a4 4 0 1 1 8 0v3' : 'M8 10V7a4 4 0 0 1 7-2'} /></>
                       : name === 'trash' ? <><path d="M4 7h16M10 11v6M14 11v6" /><path d="m6 7 1 14h10l1-14M9 7V4h6v3" /></>

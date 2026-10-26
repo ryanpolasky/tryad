@@ -277,7 +277,20 @@ export function StudioBottomPanel({
                 {!suggestions.length ? <span className="studio-muted">No suggestions for this chord.</span> : null}
               </div>
             ) : null}
-            {tab === 'In Key' ? <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
+            {tab === 'In Key' ? (
+              <div className="studio-palette-sections">
+                <div className="studio-palette-row">
+                  <strong>In Key</strong>
+                  <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} note={chordFunction(item)} onClick={() => { onPreview(item); onAssign(item) }} />)}</div>
+                </div>
+                {suggestions.some((item) => item.category === 'borrowed' || item.category === 'secondary') ? (
+                  <div className="studio-palette-row">
+                    <strong>Borrowed / secondary</strong>
+                    <div className="studio-chord-palette">{suggestions.filter((item) => item.category === 'borrowed' || item.category === 'secondary').map((item) => <ChordButton key={`${item.chord.symbol}-${item.label}`} chord={item.chord} roman={roman} note={item.label} onClick={() => { onPreview(item.chord); onAssign(item.chord) }} />)}</div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {tab === 'Other Key' ? <div className="studio-chord-palette">{otherPalette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
             {tab === 'Search' && !search ? <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
             {tab === 'Search' && parsed ? <div className="studio-search-hint">Click the chord chip to assign it to the selected slot.</div> : null}
@@ -289,5 +302,13 @@ export function StudioBottomPanel({
 }
 
 function ChordButton({ chord, roman, note, onClick }: { chord: Chord; roman: boolean; note?: string; onClick: () => void }) {
-  return <button type="button" className="studio-chord-chip" onClick={onClick}><strong>{roman ? chord.roman : chord.symbol}</strong>{note ? <small>{note}</small> : null}</button>
+  return <button type="button" className="studio-chord-chip" onClick={onClick}><strong>{roman ? chord.roman : chord.symbol}</strong>{!roman ? <small>{chord.roman}</small> : null}<small className="studio-chord-function">{note ?? chordFunction(chord)}</small></button>
+}
+
+function chordFunction(chord: Chord): string {
+  const degree = chord.roman.replace(/[^ivIV]/g, '')
+  if (degree === 'I' || degree === 'i' || degree === 'vi' || degree === 'VI') return 'tonic'
+  if (degree === 'V' || degree === 'v' || degree === 'vii' || degree === 'vii°' || degree === 'VII') return 'dominant'
+  if (degree === 'ii' || degree === 'II' || degree === 'IV' || degree === 'iv') return 'predominant'
+  return 'mediant'
 }

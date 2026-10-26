@@ -24,9 +24,13 @@ export interface DrumGrid {
   steps: Partial<Record<DrumPiece, boolean[]>>
 }
 
+export type SectionRole = 'verse' | 'chorus' | 'bridge' | 'intro' | 'outro'
+
 export interface Section {
   id: string
   name: string
+  role?: SectionRole
+  templateIdx?: number
   chords: ChordSlot[]
   melody: NoteEvent[]
   bass: NoteEvent[]
@@ -41,6 +45,7 @@ export interface TrackConfig {
   volume: number
   mute: boolean
   solo: boolean
+  locked?: boolean
   playMode?: PlayMode
   style?: string
 }
@@ -96,10 +101,36 @@ export function sectionLengthLabel(beats: number): string {
   return Number.isInteger(length / 4) ? `${length / 4} bars` : `${length} beats`
 }
 
+export function sectionRoleForName(name: string): SectionRole {
+  const normalized = name.toLowerCase()
+  if (/\bchorus\b|\brefrain\b/.test(normalized)) return 'chorus'
+  if (/\bbridge\b/.test(normalized)) return 'bridge'
+  if (/\bintro\b|\bintroduction\b/.test(normalized)) return 'intro'
+  if (/\boutro\b|\bcoda\b/.test(normalized)) return 'outro'
+  return 'verse'
+}
+
+export function normalizeProject(project: Project): Project {
+  const roles: SectionRole[] = ['verse', 'chorus', 'bridge', 'intro', 'outro']
+  return {
+    ...project,
+    tracks: project.tracks.map((track) => ({
+      ...track,
+      locked: track.locked ?? false,
+      ...(track.kind === 'bass' && !track.style ? { style: 'groove' } : {}),
+    })),
+    sections: project.sections.map((section) => ({
+      ...section,
+      role: roles.includes(section.role as SectionRole) ? section.role : sectionRoleForName(section.name),
+    })),
+  }
+}
+
 export function makeSection(name: string, chords: Chord[], beats = 4): Section {
   return {
     id: createId(),
     name,
+    role: sectionRoleForName(name),
     chords: chords.map((chord) => ({ chord, beats, inversion: 0, octave: 0, locked: false })),
     melody: [],
     bass: [],
@@ -190,7 +221,7 @@ export function loadProjects(): Project[] {
     const raw = localStorage.getItem(PROJECTS_KEY)
     if (raw) {
       const projects = JSON.parse(raw) as Project[]
-      if (Array.isArray(projects) && projects.length) return projects
+      if (Array.isArray(projects) && projects.length) return projects.map(normalizeProject)
     }
     const migrated = storage.list().map((item) => {
       const chords =
@@ -247,7 +278,7 @@ export function loadCurrentProject(): Project | null {
     const raw = localStorage.getItem(CURRENT_KEY)
     if (!raw) return null
     const project = JSON.parse(raw) as Project
-    return project?.v === 2 && Array.isArray(project.sections) && project.sections.length > 0 ? project : null
+    return project?.v === 2 && Array.isArray(project.sections) && project.sections.length > 0 ? normalizeProject(project) : null
   } catch {
     return null
   }

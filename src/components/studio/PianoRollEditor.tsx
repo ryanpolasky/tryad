@@ -32,6 +32,7 @@ export function PianoRollEditor({
   const [length, setLength] = useState(1)
   const [notes, setNotes] = useState<NoteEvent[]>(section[kind])
   const [selected, setSelected] = useState<number | null>(null)
+  const [viewportWidth, setViewportWidth] = useState(0)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef(notes)
@@ -62,10 +63,24 @@ export function PianoRollEditor({
   }, [kind, section.id, sectionNotes])
 
   useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const resize = () => setViewportWidth(scroller.clientWidth)
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
     const values = sectionNotes
-    const highest = values.length ? Math.max(...values.map((note) => note.midi)) : (kind === 'bass' ? 48 : 72)
-    const row = Math.max(low, Math.min(high, highest))
-    if (scrollerRef.current) scrollerRef.current.scrollTop = Math.max(0, (high - row - 5) * ROW_HEIGHT)
+    const sorted = values.map((note) => note.midi).sort((a, b) => a - b)
+    const median = sorted.length ? sorted[Math.floor((sorted.length - 1) / 2)] : (kind === 'bass' ? 48 : 72)
+    const row = Math.max(low, Math.min(high, median))
+    requestAnimationFrame(() => {
+      const scroller = scrollerRef.current
+      if (scroller) scroller.scrollTop = Math.max(0, (high - row) * ROW_HEIGHT - (scroller.clientHeight - ROW_HEIGHT) / 2)
+    })
   }, [kind, section.id, sectionNotes, high, low])
 
   useEffect(() => {
@@ -157,7 +172,8 @@ export function PianoRollEditor({
     window.addEventListener('pointerup', end, { once: true })
   }
 
-  const canvasWidth = Math.max(280, totalBeats * PIXELS_PER_BEAT)
+  const sectionWidth = totalBeats * PIXELS_PER_BEAT
+  const canvasWidth = Math.max(sectionWidth, viewportWidth - 48)
   const playheadX = playheadBeat * PIXELS_PER_BEAT
   return (
     <div className="studio-piano-editor">
@@ -184,6 +200,7 @@ export function PianoRollEditor({
             style={{ width: canvasWidth, height: pitches.length * ROW_HEIGHT, backgroundSize: `${PIXELS_PER_BEAT}px 100%, 100% ${ROW_HEIGHT}px` }}
             onPointerDown={addNote}
           >
+            {canvasWidth > sectionWidth ? <div className="studio-piano-past-end" style={{ left: sectionWidth, width: canvasWidth - sectionWidth }} /> : null}
             {pitches.map((midi, index) => <div key={midi} className={`studio-piano-row ${inScale(midi) ? 'in-scale' : ''} ${midi % 12 === 0 ? 'octave' : ''}`} style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }} />)}
             {Array.from({ length: Math.ceil(totalBeats) + 1 }, (_, index) => <span key={index} className={`studio-piano-beat ${index % 4 === 0 ? 'bar' : ''}`} style={{ left: index * PIXELS_PER_BEAT }} />)}
             {playing ? <span className="studio-piano-playhead" style={{ left: playheadX }} /> : null}

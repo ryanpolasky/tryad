@@ -1,7 +1,7 @@
 import type { Chord, Extension, MoodId, PitchClass, ScaleId, TriadQuality } from './theory'
 import type { InstrumentId, PlayMode } from './audio'
 import type { Project } from './project'
-import { createId } from './project'
+import { createId, normalizeProject } from './project'
 
 // shape we serialize into the URL hash. compact-ish but readable. version field
 // lets us evolve the encoding without breaking already-shared links.
@@ -217,6 +217,7 @@ export async function readProjectFromHash(hash: string): Promise<Project | null>
     const section = {
       id: createId(),
       name: 'Verse',
+      role: 'verse' as const,
       chords: legacy.chords.map((chord, index) => ({
         chord,
         beats: legacy.chordBeats[index] ?? legacy.beatsPerChord,
@@ -228,7 +229,7 @@ export async function readProjectFromHash(hash: string): Promise<Project | null>
       bass: [],
       drums: null,
     }
-    return {
+    return normalizeProject({
       v: 2,
       id: createId(),
       title: 'shared progression',
@@ -243,21 +244,21 @@ export async function readProjectFromHash(hash: string): Promise<Project | null>
       tracks: [{ kind: 'chords', instrument: legacy.instrument, volume: 0.85, mute: false, solo: false, playMode: legacy.playMode }],
       sections: [section],
       activeSectionId: section.id,
-    }
+    })
   }
   if (!hash.startsWith('#p=')) return null
   const encoded = hash.slice(3)
   try {
     const decoded = b64urlDecode(encoded)
     const parsed = JSON.parse(decoded) as Project
-    if (parsed?.v === 2 && Array.isArray(parsed.sections)) return parsed
+    if (parsed?.v === 2 && Array.isArray(parsed.sections)) return normalizeProject(parsed)
   } catch {
     try {
       const bytes = b64urlDecodeBytes(encoded)
       const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
       const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
       const parsed = JSON.parse(await new Response(stream).text()) as Project
-      if (parsed?.v === 2 && Array.isArray(parsed.sections)) return parsed
+      if (parsed?.v === 2 && Array.isArray(parsed.sections)) return normalizeProject(parsed)
     } catch {
       return null
     }

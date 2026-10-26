@@ -3,6 +3,7 @@ import { EXTENSIONS, KEY_OPTIONS, keyName, SCALE_LIST, SCALES } from '../../lib/
 import type { KeySpelling, PitchClass, ScaleId } from '../../lib/theory'
 import type { Project } from '../../lib/project'
 import type { VisualizerMode } from '../ChordVisualizer'
+import { useStudioMenu } from './useStudioMenu'
 
 export type StudioTool = 'chords' | 'voicings' | 'melody' | 'bass' | 'drums' | 'piano' | 'guitar' | 'shortcuts'
 
@@ -38,8 +39,9 @@ export function StudioTransport({
   project, playing, visualMode, isRendering, onMasterVolume, onMetronome, onBpm, onKey,
   onExtension, onPlay, onStart, onLoop, onVisualMode, onTool,
 }: StudioTransportProps) {
-  const [keyOpen, setKeyOpen] = useState(false)
-  const [toolsOpen, setToolsOpen] = useState(false)
+  const { openMenu, setOpenMenu } = useStudioMenu()
+  const keyOpen = openMenu === 'transport:key'
+  const toolsOpen = openMenu === 'transport:tools'
   const scaleLabel = project.scaleId === 'major' ? 'major' : project.scaleId === 'minor' ? 'minor' : SCALES[project.scaleId].name.toLowerCase()
   const preferredKeyName = keyName(project.key, SCALES[project.scaleId], project.keySpelling)
   const preferredOption = KEY_OPTIONS.find((item) => item.key === project.key && item.name === preferredKeyName)
@@ -56,8 +58,8 @@ export function StudioTransport({
       <div className="studio-transport-center">
         <button type="button" className={`studio-transport-icon ${project.metronome ? 'active' : ''}`} aria-label="Toggle metronome" title="Metronome" onClick={onMetronome}><Icon name="metronome" /></button>
         <BpmControl value={project.bpm} onCommit={onBpm} />
-        <div className="studio-key-wrap">
-          <button type="button" className="studio-key-button" aria-label={`Key ${keyName(project.key, SCALES[project.scaleId], project.keySpelling)} ${scaleLabel}`} onClick={() => setKeyOpen((open) => !open)}>
+        <div className="studio-key-wrap" data-studio-menu-root>
+          <button type="button" className="studio-key-button" aria-label={`Key ${keyName(project.key, SCALES[project.scaleId], project.keySpelling)} ${scaleLabel}`} onClick={() => setOpenMenu(keyOpen ? null : 'transport:key')}>
             <strong>{keyName(project.key, SCALES[project.scaleId], project.keySpelling)}</strong>
             <small>{scaleLabel}</small>
           </button>
@@ -67,10 +69,10 @@ export function StudioTransport({
               <label>Key<select aria-label="Project key" value={selectedKey} onChange={(event) => {
                 const [keyText, spellingText] = event.target.value.split(':')
                 const option = KEY_OPTIONS.find((item) => item.key === Number(keyText) && (item.spelling ?? 'natural') === spellingText)
-                if (option) { onKey(option.key, project.scaleId, option.spelling); setKeyOpen(false) }
+                if (option) { onKey(option.key, project.scaleId, option.spelling); setOpenMenu(null) }
               }}>{KEY_OPTIONS.map((item) => <option key={`${item.key}:${item.spelling ?? 'natural'}`} value={`${item.key}:${item.spelling ?? 'natural'}`}>{item.name}</option>)}</select></label>
-              <label>Scale<select aria-label="Project scale" value={project.scaleId} onChange={(event) => { onKey(project.key, event.target.value as ScaleId, project.keySpelling); setKeyOpen(false) }}>{SCALE_LIST.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label>Chord extension<select aria-label="Chord extension" value={project.extension} onChange={(event) => { onExtension(event.target.value as Project['extension']); setKeyOpen(false) }}>{EXTENSIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+              <label>Scale<select aria-label="Project scale" value={project.scaleId} onChange={(event) => { onKey(project.key, event.target.value as ScaleId, project.keySpelling); setOpenMenu(null) }}>{SCALE_LIST.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label>Chord extension<select aria-label="Chord extension" value={project.extension} onChange={(event) => { onExtension(event.target.value as Project['extension']); setOpenMenu(null) }}>{EXTENSIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
             </div>
           ) : null}
         </div>
@@ -83,13 +85,13 @@ export function StudioTransport({
         </div>
       </div>
       <div className="studio-transport-tools">
-        <div className="studio-menu-wrap">
-          <button type="button" className="studio-tools-button" onClick={() => setToolsOpen((open) => !open)}>Tools <span>⌄</span></button>
+        <div className="studio-menu-wrap" data-studio-menu-root>
+          <button type="button" className="studio-tools-button" onClick={() => setOpenMenu(toolsOpen ? null : 'transport:tools')}>Tools <span>⌄</span></button>
           {toolsOpen ? (
             <div className="studio-popover studio-tools-menu">
               <strong>Tools</strong>
               {TOOL_ITEMS.map((item) => (
-                <button type="button" key={item.id} onClick={() => { onTool(item.id); setToolsOpen(false) }}>
+                <button type="button" key={item.id} onClick={() => { onTool(item.id); setOpenMenu(null) }}>
                   <Icon name={item.icon} />
                   <span><strong>{item.title}</strong><small>{item.description}</small></span>
                 </button>

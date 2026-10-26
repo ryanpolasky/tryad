@@ -196,12 +196,7 @@ function buildVoice(
     case 'lead':
       return makeLeadVoice(output)
     case 'bass-electric':
-      return makeSamplerVoice(
-        { E1: 'E1.mp3', A1: 'A1.mp3', D2: 'D2.mp3', G2: 'G2.mp3', A2: 'A2.mp3' },
-        `${NBROS_BASE}bass-electric/`,
-        output,
-        0.5,
-      )
+      return buildVoice('synth-bass', output)
     case 'synth-bass': {
       const synth = new Tone.MonoSynth({
         oscillator: { type: 'sawtooth' },
@@ -920,11 +915,12 @@ class SongAudioEngine {
   private metronome: Tone.MembraneSynth | null = null
   private startBeat = 0
   private rangeBeats = 0
-  private songBpm = 96
-  private startTransportSeconds = 0
+  private transportStartTicks = 0
   private playheadCallback: ((sectionId: string, chordIndex: number) => void) | null = null
   private currentProject: Project | null = null
   private sectionIds: string[] = []
+  private updateTimer: number | null = null
+  private pendingSectionSwitch: number | null = null
 
   async setTracks(tracks: TrackConfig[], masterVolume: number): Promise<void> {
     const graph = ensureGraph()
@@ -984,13 +980,13 @@ class SongAudioEngine {
     const sections = this.sectionIds.map((id) => project.sections.find((section) => section.id === id)).filter((section): section is Section => Boolean(section))
     this.startBeat = Math.max(0, opts.startBeat ?? 0)
     this.rangeBeats = sections.reduce((sum, section) => sum + sectionBeats(section), 0)
-    this.songBpm = project.bpm
     this.playheadCallback = opts.onChord ?? null
     const transport = Tone.getTransport()
     transport.cancel(0)
     transport.stop()
     transport.position = 0
     transport.bpm.value = project.bpm
+    this.transportStartTicks = transport.ticks
     const events = songEvents(project, sections, this.startBeat)
     const part = new Tone.Part<SongEvent>((time, event) => {
       if (event.kind === 'metronome') {
@@ -1026,15 +1022,114 @@ class SongAudioEngine {
       this.parts.push(clickPart)
     }
     transport.start('+0.04')
-    this.startTransportSeconds = transport.seconds
     return () => this.stop()
+  }
+
+  scheduleLiveUpdate(opts: {
+    project: Project
+    startBeat?: number
+    sectionIds?: string[]
+    onChord?: (sectionId: string, chordIndex: number) => void
+  }): void {
+    if (!this.isPlaying) return
+    if (this.updateTimer !== null) window.clearTimeout(this.updateTimer)
+    const currentBeat = opts.startBeat ?? this.getPlayheadBeat()
+    this.updateTimer = window.setTimeout(() => {
+      this.updateTimer = null
+      void this.applyLiveUpdate(opts, currentBeat)
+    }, 50)
+  }
+
+  switchSectionAtNextBar(opts: {
+    project: Project
+    sectionId: string
+    onChord?: (sectionId: string, chordIndex: number) => void
+  }): void {
+    const transport = Tone.getTransport()
+    if (this.pendingSectionSwitch !== null) transport.clear(this.pendingSectionSwitch)
+    const currentBeat = this.getPlayheadBeat()
+    const boundary = Math.ceil((currentBeat + 0.001) / 4) * 4
+    const delay = secondsAtBeat(Math.max(0.05, boundary - currentBeat), opts.project.bpm)
+    this.pendingSectionSwitch = transport.scheduleOnce(() => {
+      this.pendingSectionSwitch = null
+      this.scheduleLiveUpdate({ ...opts, sectionIds: [opts.sectionId], startBeat: 0 })
+    }, transport.seconds + delay)
+  }
+
+  private async applyLiveUpdate(
+    opts: { project: Project; startBeat?: number; sectionIds?: string[]; onChord?: (sectionId: string, chordIndex: number) => void },
+    requestedBeat: number,
+  ): Promise<void> {
+    if (!this.isPlaying) return
+    await this.setTracks(opts.project.tracks, opts.project.masterVolume)
+    const transport = Tone.getTransport()
+    transport.bpm.rampTo(opts.project.bpm, 0.05)
+    const project = opts.project
+    this.currentProject = project
+    this.sectionIds = opts.sectionIds?.length ? opts.sectionIds : project.sections.map((section) => section.id)
+    const sections = this.sectionIds.map((id) => project.sections.find((section) => section.id === id)).filter((section): section is Section => Boolean(section))
+    this.rangeBeats = sections.reduce((sum, section) => sum + sectionBeats(section), 0)
+    if (this.rangeBeats <= 0) return
+    const beat = ((requestedBeat % this.rangeBeats) + this.rangeBeats) % this.rangeBeats
+    this.startBeat = beat
+    this.playheadCallback = opts.onChord ?? this.playheadCallback
+    this.transportStartTicks = transport.ticks
+    for (const part of this.parts) {
+      part.stop()
+      part.dispose()
+    }
+    this.parts = []
+
+    const loopSeconds = secondsAtBeat(this.rangeBeats, project.bpm)
+    const remainingSeconds = secondsAtBeat(this.rangeBeats - beat, project.bpm)
+    const startAt = transport.seconds + 0.04
+    const addPart = (events: SongEvent[], at: number, loop: boolean, loopEnd: number) => {
+      const part = new Tone.Part<SongEvent>((time, event) => {
+        if (event.kind === 'metronome') {
+          this.metronome?.triggerAttackRelease('C6', 0.035, time, event.velocity ?? 0.5)
+          return
+        }
+        if (event.kind === 'drums') {
+          if (event.piece) this.channels.get('drums')?.kit?.trigger(event.piece, time, event.velocity ?? 0.75)
+          return
+        }
+        const channel = this.channels.get(event.kind)
+        if (channel?.voice && event.notes) channel.voice.triggerAttackRelease(event.notes, event.duration ?? 0.2, time, event.velocity ?? 0.7)
+        if (event.kind === 'chords' && event.sectionId && typeof event.chordIndex === 'number') {
+          Tone.getDraw().schedule(() => this.playheadCallback?.(event.sectionId as string, event.chordIndex as number), time)
+        }
+      }, events)
+      part.loop = loop
+      part.loopEnd = loopEnd
+      part.start(at)
+      this.parts.push(part)
+    }
+
+    const tailEvents = songEvents(project, sections, beat).filter((event) => event.time > 0.02)
+    addPart(tailEvents, startAt, false, remainingSeconds)
+    addPart(songEvents(project, sections, 0), startAt + remainingSeconds, true, loopSeconds)
+    if (project.metronome) {
+      this.metronome ??= new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }).connect(ensureGraph().master)
+      const tailClicks = Array.from({ length: Math.ceil(this.rangeBeats - beat) }, (_, index) => ({
+        time: secondsAtBeat(index + Math.ceil(beat) - beat, project.bpm),
+        kind: 'metronome' as const,
+        velocity: (index + Math.ceil(beat)) % 4 === 0 ? 0.68 : 0.28,
+      }))
+      const loopClicks = Array.from({ length: Math.ceil(this.rangeBeats) }, (_, index) => ({
+        time: secondsAtBeat(index, project.bpm),
+        kind: 'metronome' as const,
+        velocity: index % 4 === 0 ? 0.68 : 0.28,
+      }))
+      addPart(tailClicks, startAt, false, remainingSeconds)
+      addPart(loopClicks, startAt + remainingSeconds, true, loopSeconds)
+    }
   }
 
   getPlayheadBeat(): number {
     if (!this.currentProject || this.rangeBeats <= 0) return 0
-    const elapsed = Math.max(0, Tone.getTransport().seconds - this.startTransportSeconds) * this.songBpm / 60
-    const span = Math.max(0.25, this.rangeBeats - this.startBeat)
-    return this.startBeat + (elapsed % span)
+    const transport = Tone.getTransport()
+    const elapsedBeats = Math.max(0, (transport.ticks - this.transportStartTicks) / transport.PPQ)
+    return (this.startBeat + elapsedBeats) % this.rangeBeats
   }
 
   getPlayheadPosition(): { beat: number; sectionId: string; chordIndex: number } | null {
@@ -1067,6 +1162,10 @@ class SongAudioEngine {
 
   stop(): void {
     const transport = Tone.getTransport()
+    if (this.updateTimer !== null) window.clearTimeout(this.updateTimer)
+    this.updateTimer = null
+    if (this.pendingSectionSwitch !== null) transport.clear(this.pendingSectionSwitch)
+    this.pendingSectionSwitch = null
     for (const part of this.parts) {
       part.stop()
       part.dispose()
