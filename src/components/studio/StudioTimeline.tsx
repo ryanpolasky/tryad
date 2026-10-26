@@ -10,6 +10,15 @@ import { useStudioMenu } from './useStudioMenu'
 
 const TRACK_LABELS: Record<TrackKind, string> = { chords: 'Chords', melody: 'Melody', bass: 'Bass', drums: 'Drums' }
 const BEAT_WIDTH = 68
+const CLIP_INNER_HEIGHT = 50
+
+function clipPitchLayout(notes: Array<{ midi: number }>, barHeight: number) {
+  const pitches = notes.map((note) => note.midi)
+  const lo = pitches.length ? Math.min(...pitches) - 1 : 0
+  const hi = pitches.length ? Math.max(...pitches) + 1 : 8
+  const range = Math.max(8, hi - lo)
+  return { lo, step: (CLIP_INNER_HEIGHT - barHeight - 6) / range }
+}
 
 interface StudioTimelineProps {
   project: Project
@@ -61,6 +70,10 @@ export function StudioTimeline(props: StudioTimelineProps) {
   const pxPerBeat = BEAT_WIDTH * zoom
   const sectionWidth = totalBeats * pxPerBeat
   const timelineWidth = Math.max(560, sectionWidth + 90)
+  const clipLayouts = {
+    melody: clipPitchLayout(section.melody, 3),
+    bass: clipPitchLayout(section.bass, 4),
+  }
 
   const beginResize = (event: React.PointerEvent, index: number, beats: number, edge: 'left' | 'right') => {
     event.preventDefault()
@@ -147,7 +160,9 @@ export function StudioTimeline(props: StudioTimelineProps) {
             <span className="studio-ruler-playhead" style={{ left: playheadBeat * pxPerBeat }} />
           </div>
         </div>
-        {tracks.map((track) => (
+        {tracks.map((track) => {
+          const clipLayout = track.kind === 'bass' ? clipLayouts.bass : clipLayouts.melody
+          return (
           <div className="studio-track-row" key={track.kind}>
             <div className="studio-track-head" data-studio-menu-root>
               <div className="studio-track-main">
@@ -260,15 +275,12 @@ export function StudioTimeline(props: StudioTimelineProps) {
                     onKeyDown={(event) => event.key === 'Enter' && onOpenClip(track.kind === 'melody' ? 'melody' : 'bass')}
                   >
                     {section[track.kind].map((note, index) => {
-                      const low = track.kind === 'bass' ? 28 : 48
-                      const high = track.kind === 'bass' ? 52 : 88
-                      const pitchStep = track.kind === 'bass' ? 2 : 1.2
-                      const pitch = Math.max(0, Math.min(high - low, note.midi - low))
+                      const pitch = note.midi - clipLayout.lo
                       return (
                         <span key={`${note.start}-${index}`} style={{
                           left: `${note.start / Math.max(1, totalBeats) * 100}%`,
                           width: `${Math.max(0.6, note.dur / Math.max(1, totalBeats) * 100)}%`,
-                          bottom: `${3 + pitch * pitchStep}px`,
+                          bottom: `${3 + pitch * clipLayout.step}px`,
                         }} />
                       )
                     })}
@@ -293,7 +305,8 @@ export function StudioTimeline(props: StudioTimelineProps) {
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
         {missingTracks.length ? (
           <div className="studio-track-row studio-add-track-row">
             <div className="studio-track-head studio-add-track-head">
