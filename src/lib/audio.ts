@@ -1030,6 +1030,7 @@ class SongAudioEngine {
     startBeat?: number
     sectionIds?: string[]
     onChord?: (sectionId: string, chordIndex: number) => void
+    retrigger?: boolean
   }): void {
     if (!this.isPlaying) return
     if (this.updateTimer !== null) window.clearTimeout(this.updateTimer)
@@ -1052,16 +1053,20 @@ class SongAudioEngine {
     const delay = secondsAtBeat(Math.max(0.05, boundary - currentBeat), opts.project.bpm)
     this.pendingSectionSwitch = transport.scheduleOnce(() => {
       this.pendingSectionSwitch = null
-      this.scheduleLiveUpdate({ ...opts, sectionIds: [opts.sectionId], startBeat: 0 })
+      this.scheduleLiveUpdate({ ...opts, sectionIds: [opts.sectionId], startBeat: 0, retrigger: true })
     }, transport.seconds + delay)
   }
 
   private async applyLiveUpdate(
-    opts: { project: Project; startBeat?: number; sectionIds?: string[]; onChord?: (sectionId: string, chordIndex: number) => void },
+    opts: { project: Project; startBeat?: number; sectionIds?: string[]; onChord?: (sectionId: string, chordIndex: number) => void; retrigger?: boolean },
     requestedBeat: number,
   ): Promise<void> {
     if (!this.isPlaying) return
     await this.setTracks(opts.project.tracks, opts.project.masterVolume)
+    if (opts.retrigger) {
+      const now = Tone.now()
+      for (const channel of this.channels.values()) channel.voice?.releaseAll(now)
+    }
     const transport = Tone.getTransport()
     transport.bpm.rampTo(opts.project.bpm, 0.05)
     const project = opts.project
@@ -1080,10 +1085,14 @@ class SongAudioEngine {
     }
     this.parts = []
 
-    const loopSeconds = secondsAtBeat(this.rangeBeats, project.bpm)
-    const remainingSeconds = secondsAtBeat(this.rangeBeats - beat, project.bpm)
-    const startAt = transport.seconds + 0.04
-    const addPart = (events: SongEvent[], at: number, loop: boolean, loopEnd: number) => {
+    const startAtTicks = Math.round(transport.ticks + (0.04 * transport.bpm.value * transport.PPQ) / 60)
+    const loopStartTicks = startAtTicks + Math.round((this.rangeBeats - beat) * transport.PPQ)
+    const loopEndTicks = Math.round(this.rangeBeats * transport.PPQ)
+    const addPart = (events: SongEvent[], atTicks: number, loop: boolean, endTicks: number) => {
+      const partEvents = events.map((event) => ({
+        ...event,
+        time: `${Math.round((event.time * project.bpm * transport.PPQ) / 60)}i`,
+      })) as unknown as SongEvent[]
       const part = new Tone.Part<SongEvent>((time, event) => {
         if (event.kind === 'metronome') {
           this.metronome?.triggerAttackRelease('C6', 0.035, time, event.velocity ?? 0.5)
@@ -1098,16 +1107,17 @@ class SongAudioEngine {
         if (event.kind === 'chords' && event.sectionId && typeof event.chordIndex === 'number') {
           Tone.getDraw().schedule(() => this.playheadCallback?.(event.sectionId as string, event.chordIndex as number), time)
         }
-      }, events)
+      }, partEvents)
       part.loop = loop
-      part.loopEnd = loopEnd
-      part.start(at)
+      part.loopEnd = `${endTicks}i`
+      part.start(`${atTicks}i`)
       this.parts.push(part)
     }
 
-    const tailEvents = songEvents(project, sections, beat).filter((event) => event.time > 0.02)
-    addPart(tailEvents, startAt, false, remainingSeconds)
-    addPart(songEvents(project, sections, 0), startAt + remainingSeconds, true, loopSeconds)
+    const tailEvents = songEvents(project, sections, beat)
+    const scheduledTailEvents = opts.retrigger ? tailEvents : tailEvents.filter((event) => event.time > 0.02)
+    addPart(scheduledTailEvents, startAtTicks, false, Math.round((this.rangeBeats - beat) * transport.PPQ))
+    addPart(songEvents(project, sections, 0), loopStartTicks, true, loopEndTicks)
     if (project.metronome) {
       this.metronome ??= new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }).connect(ensureGraph().master)
       const tailClicks = Array.from({ length: Math.ceil(this.rangeBeats - beat) }, (_, index) => ({
@@ -1120,8 +1130,8 @@ class SongAudioEngine {
         kind: 'metronome' as const,
         velocity: index % 4 === 0 ? 0.68 : 0.28,
       }))
-      addPart(tailClicks, startAt, false, remainingSeconds)
-      addPart(loopClicks, startAt + remainingSeconds, true, loopSeconds)
+      addPart(tailClicks, startAtTicks, false, Math.round((this.rangeBeats - beat) * transport.PPQ))
+      addPart(loopClicks, loopStartTicks, true, loopEndTicks)
     }
   }
 
@@ -1191,7 +1201,9 @@ export async function renderSong(project: Project): Promise<AudioBuffer> {
   const hasSolo = tracks.some((track) => track.solo)
   const events = songEvents(project, sections, 0)
   const duration = secondsAtBeat(lengthBeats, project.bpm) + tail
-  const rendered = await Tone.Offline(async () => {
+  const rendered = await Tone.Offline(async (offlineContext) => {
+    const transport = offlineContext.transport
+    transport.bpm.value = project.bpm
     const limiter = new Tone.Limiter(-1).toDestination()
     const reverb = new Tone.Reverb({ decay: 2.6, preDelay: 0.02, wet: 0.22 }).connect(limiter)
     await reverb.generate()
@@ -1221,8 +1233,7 @@ export async function renderSong(project: Project): Promise<AudioBuffer> {
       }
     }, allEvents)
     part.start(0)
-    Tone.getTransport().bpm.value = project.bpm
-    Tone.getTransport().start(0)
+    transport.start(0)
   }, duration)
   return rendered.get() as AudioBuffer
 }

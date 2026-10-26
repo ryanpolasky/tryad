@@ -21,6 +21,18 @@ import { buildProjectShareUrl, readProjectFromHash } from './lib/share'
 import { downloadMidi, songToMidi } from './lib/midi'
 import { audioBufferToWav, downloadBlob } from './lib/wav'
 
+function projectExportFilename(title: string, extension: 'mid' | 'wav', suffix?: 'chords'): string {
+  const slug = title
+    .trim()
+    .replace(/(?:\.(?:mid|wav))+$/i, '')
+    .toLowerCase()
+    .replace(/[\u002F\\:*?"<>|]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'untitled'
+  return `tryad-${slug}${suffix ? `-${suffix}` : ''}.${extension}`
+}
+
 function App() {
   const location = useLocation()
   const [store, dispatch] = useReducer(
@@ -346,7 +358,7 @@ function App() {
     setPlayheadBeat(beat)
     if (playing) {
       const sectionIds = project.loopSection ? [section.id] : project.sections.map((item) => item.id)
-      songAudio.scheduleLiveUpdate({ project, startBeat: beat, sectionIds, onChord: onChordPlayback })
+      songAudio.scheduleLiveUpdate({ project, startBeat: beat, sectionIds, onChord: onChordPlayback, retrigger: true })
       return
     }
     await songAudio.start()
@@ -362,14 +374,14 @@ function App() {
 
   const exportProject = useCallback(async (format: 'midi' | 'chords-midi' | 'wav') => {
     if (format === 'midi' || format === 'chords-midi') {
-      downloadMidi(project.title || 'tryad-song', songToMidi(project, format === 'chords-midi'))
+      downloadMidi(projectExportFilename(project.title, 'mid', format === 'chords-midi' ? 'chords' : undefined), songToMidi(project, format === 'chords-midi'))
       notify('MIDI export started')
       return
     }
     setIsRendering(true)
     try {
       const buffer = await renderSong(project)
-      downloadBlob(audioBufferToWav(buffer), `${project.title || 'tryad-song'}.wav`, 'audio/wav')
+      downloadBlob(audioBufferToWav(buffer), projectExportFilename(project.title, 'wav'), 'audio/wav')
       notify('WAV export started')
     } catch {
       notify('WAV render failed')
@@ -449,7 +461,7 @@ function App() {
   const skipToStart = useCallback(() => {
     if (playing) {
       const sectionIds = project.loopSection ? [section.id] : project.sections.map((item) => item.id)
-      songAudio.scheduleLiveUpdate({ project, startBeat: 0, sectionIds, onChord: onChordPlayback })
+      songAudio.scheduleLiveUpdate({ project, startBeat: 0, sectionIds, onChord: onChordPlayback, retrigger: true })
     } else {
       songAudio.stop()
     }

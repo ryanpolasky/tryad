@@ -259,13 +259,19 @@ export function StudioTimeline(props: StudioTimelineProps) {
                     onDoubleClick={() => onOpenClip(track.kind === 'melody' ? 'melody' : 'bass')}
                     onKeyDown={(event) => event.key === 'Enter' && onOpenClip(track.kind === 'melody' ? 'melody' : 'bass')}
                   >
-                    {section[track.kind].map((note, index) => (
-                      <span key={`${note.start}-${index}`} style={{
-                        left: `${note.start / Math.max(1, totalBeats) * 100}%`,
-                        width: `${Math.max(0.6, note.dur / Math.max(1, totalBeats) * 100)}%`,
-                        bottom: `${Math.max(4, Math.min(40, (note.midi - (track.kind === 'bass' ? 33 : 60)) * 2.2))}px`,
-                      }} />
-                    ))}
+                    {section[track.kind].map((note, index) => {
+                      const low = track.kind === 'bass' ? 28 : 48
+                      const high = track.kind === 'bass' ? 52 : 88
+                      const pitchStep = track.kind === 'bass' ? 2 : 1.2
+                      const pitch = Math.max(0, Math.min(high - low, note.midi - low))
+                      return (
+                        <span key={`${note.start}-${index}`} style={{
+                          left: `${note.start / Math.max(1, totalBeats) * 100}%`,
+                          width: `${Math.max(0.6, note.dur / Math.max(1, totalBeats) * 100)}%`,
+                          bottom: `${3 + pitch * pitchStep}px`,
+                        }} />
+                      )
+                    })}
                     {!section[track.kind].length ? <span className="studio-clip-placeholder">Double-click to open {track.kind} editor</span> : null}
                   </div>
                 ) : (
