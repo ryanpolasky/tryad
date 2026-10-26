@@ -2,11 +2,31 @@
 // pitch-class based (0..11) until we hand off to MIDI/audio.
 
 export type PitchClass = number // 0..11
+export type KeySpelling = 'sharp' | 'flat'
 
 export const NOTE_NAMES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const
 export const NOTE_NAMES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'] as const
 
 export const ALL_KEYS = NOTE_NAMES_SHARP
+export const KEY_OPTIONS: { name: string; key: PitchClass; spelling?: KeySpelling }[] = [
+  { name: 'C', key: 0 },
+  { name: 'C#', key: 1, spelling: 'sharp' },
+  { name: 'Db', key: 1, spelling: 'flat' },
+  { name: 'D', key: 2 },
+  { name: 'D#', key: 3, spelling: 'sharp' },
+  { name: 'Eb', key: 3, spelling: 'flat' },
+  { name: 'E', key: 4 },
+  { name: 'F', key: 5 },
+  { name: 'F#', key: 6, spelling: 'sharp' },
+  { name: 'Gb', key: 6, spelling: 'flat' },
+  { name: 'G', key: 7 },
+  { name: 'G#', key: 8, spelling: 'sharp' },
+  { name: 'Ab', key: 8, spelling: 'flat' },
+  { name: 'A', key: 9 },
+  { name: 'A#', key: 10, spelling: 'sharp' },
+  { name: 'Bb', key: 10, spelling: 'flat' },
+  { name: 'B', key: 11 },
+]
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'] as const
 
@@ -126,18 +146,33 @@ export function pcName(pc: PitchClass, preferFlat = false): string {
   return preferFlat ? NOTE_NAMES_FLAT[norm] : NOTE_NAMES_SHARP[norm]
 }
 
-function scalePrefersFlats(key: PitchClass, scale: Scale): boolean {
-  // flat keys always flats; minor-feeling scales default to flats.
-  const flatKeys = new Set([1, 3, 5, 8, 10]) // Db, Eb, F, Ab, Bb
-  if (flatKeys.has(key)) return true
-  const flatScales = new Set<ScaleId>([
-    'minor',
-    'phrygian',
-    'dorian',
-    'harmonicMinor',
-    'melodicMinor',
-  ])
-  return flatScales.has(scale.id)
+function parentMajorKey(key: PitchClass, scale: Scale): PitchClass {
+  const offsets: Record<ScaleId, number> = {
+    major: 0,
+    minor: 3,
+    dorian: 10,
+    phrygian: 8,
+    lydian: 7,
+    mixolydian: 5,
+    locrian: 1,
+    harmonicMinor: 3,
+    melodicMinor: 3,
+  }
+  return ((key + offsets[scale.id]) % 12) as PitchClass
+}
+
+export function keySignaturePrefersFlats(
+  key: PitchClass,
+  scale: Scale,
+  spelling?: KeySpelling,
+): boolean {
+  if (spelling && [1, 3, 6, 8, 10].includes(key)) return spelling === 'flat'
+  const parent = parentMajorKey(key, scale)
+  return [1, 3, 5, 8, 10].includes(parent)
+}
+
+export function keyName(key: PitchClass, scale: Scale, spelling?: KeySpelling): string {
+  return pcName(key, spelling ? spelling === 'flat' : keySignaturePrefersFlats(key, scale))
 }
 
 function triadIntervals(q: TriadQuality): number[] {
@@ -291,8 +326,13 @@ function romanFor(q: TriadQuality, degree: number, ext: Extension, seventhSemis:
 }
 
 // the seven diatonic chords for (key, scale) at the given extension.
-export function diatonicChords(key: PitchClass, scale: Scale, extension: Extension): Chord[] {
-  const preferFlat = scalePrefersFlats(key, scale)
+export function diatonicChords(
+  key: PitchClass,
+  scale: Scale,
+  extension: Extension,
+  spelling?: KeySpelling,
+): Chord[] {
+  const preferFlat = keySignaturePrefersFlats(key, scale, spelling)
   const chords: Chord[] = []
   for (let i = 0; i < 7; i++) {
     const degree = i + 1
@@ -700,6 +740,7 @@ export function makeSecondaryDominant(
   scale: Scale,
   target: Chord,
   extension: Extension,
+  spelling?: KeySpelling,
 ): Chord {
   const root = (((target.root + 7) % 12) + 12) % 12
   const intervals: number[] = (() => {
@@ -718,7 +759,7 @@ export function makeSecondaryDominant(
         return [0, 4, 7, 14]
     }
   })()
-  const preferFlat = scalePrefersFlats(key, scale)
+  const preferFlat = keySignaturePrefersFlats(key, scale, spelling)
   const rootName = pcName(root, preferFlat)
   const targetRomanRaw = ROMAN[target.degree - 1] ?? '?'
   const targetRoman =
@@ -796,6 +837,7 @@ export function makeBorrowedChord(
   scale: Scale,
   def: BorrowedDef,
   extension: Extension,
+  spelling?: KeySpelling,
 ): Chord {
   const root = (((key + def.rootOffset) % 12) + 12) % 12
   const triad = triadIntervals(def.quality)
@@ -828,7 +870,7 @@ export function makeBorrowedChord(
   }
   // ♭VI / ♭VII should always spell with flats, regardless of source scale.
   const labelUsesFlat = def.label.startsWith('♭')
-  const preferFlat = labelUsesFlat || scalePrefersFlats(key, scale)
+  const preferFlat = labelUsesFlat || keySignaturePrefersFlats(key, scale, spelling)
   const rootName = pcName(root, preferFlat)
   const symbol = symbolFor(rootName, def.quality, extension, seventhSemis)
   // append the extension suffix onto the borrowed roman.
@@ -878,6 +920,7 @@ function applyCadence(degrees: number[], rng: () => number): void {
 
 export function generateProgression(opts: {
   key: PitchClass
+  keySpelling?: KeySpelling
   scaleId?: ScaleId
   moodId: MoodId
   length: number
@@ -892,7 +935,7 @@ export function generateProgression(opts: {
     opts.scaleId ?? mood.scales[Math.floor(rng() * mood.scales.length)]
   const scale = SCALES[scaleId]
   const extension = opts.extension ?? mood.defaultExtension ?? 'triad'
-  const diatonic = diatonicChords(opts.key, scale, extension)
+  const diatonic = diatonicChords(opts.key, scale, extension, opts.keySpelling)
 
   const meta = generateDegreesWithMeta(mood, opts.length, rng, opts.avoidTemplateIdx)
   const degrees = meta.degrees
@@ -917,7 +960,7 @@ export function generateProgression(opts: {
       if (i === chords.length - 1) continue
       if (rng() < borrowedProb) {
         const def = borrowedPool[Math.floor(rng() * borrowedPool.length)]
-        chords[i] = makeBorrowedChord(opts.key, scale, def, appliedExtension)
+        chords[i] = makeBorrowedChord(opts.key, scale, def, appliedExtension, opts.keySpelling)
       }
     }
   }
@@ -934,7 +977,7 @@ export function generateProgression(opts: {
       if (target.degree === 1) continue // V/I is just V, boring
       if (target.quality === 'dim') continue
       if (rng() < secondaryProb) {
-        chords[i] = makeSecondaryDominant(opts.key, scale, target, appliedExtension)
+        chords[i] = makeSecondaryDominant(opts.key, scale, target, appliedExtension, opts.keySpelling)
       }
     }
   }
@@ -944,6 +987,7 @@ export function generateProgression(opts: {
 
 export function regenerateChordInProgression(opts: {
   key: PitchClass
+  keySpelling?: KeySpelling
   scaleId: ScaleId
   moodId: MoodId
   extension: Extension
@@ -954,7 +998,7 @@ export function regenerateChordInProgression(opts: {
   const rng = opts.rng ?? Math.random
   const mood = MOODS.find((m) => m.id === opts.moodId) ?? MOODS[0]
   const scale = SCALES[opts.scaleId]
-  const diatonic = diatonicChords(opts.key, scale, opts.extension)
+  const diatonic = diatonicChords(opts.key, scale, opts.extension, opts.keySpelling)
   const index = Math.max(0, Math.min(opts.index, Math.max(0, opts.chords.length - 1)))
   const current = opts.chords[index]
   const prevDegree = opts.chords[index - 1]?.degree
@@ -970,6 +1014,24 @@ export function regenerateChordInProgression(opts: {
     rng() < 0.6
   const degree = wantsCadence ? 1 : pickContextualDegree(prev, next, currentDegree, rng)
   return diatonic[degree - 1] ?? diatonic[0]
+}
+
+export function respellChord(
+  chord: Chord,
+  root: PitchClass,
+  key: PitchClass,
+  scale: Scale,
+  spelling?: KeySpelling,
+): Chord {
+  const preferFlat = keySignaturePrefersFlats(key, scale, spelling)
+  const rootName = pcName(root, preferFlat)
+  const seventh = chord.intervals.length > 3 ? chord.intervals[3] : null
+  return {
+    ...chord,
+    root,
+    symbol: symbolFor(rootName, chord.quality, chord.extension, seventh),
+    pitchClasses: chord.intervals.map((interval) => ((root + interval) % 12) as PitchClass),
+  }
 }
 
 // ---------- Voicing & MIDI ----------

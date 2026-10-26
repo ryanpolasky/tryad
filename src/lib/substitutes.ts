@@ -8,6 +8,7 @@ import {
   pcName,
   type Chord,
   type Extension,
+  type KeySpelling,
   type PitchClass,
   type Scale,
 } from './theory'
@@ -69,10 +70,11 @@ export function suggestSubstitutes(opts: {
   key: PitchClass
   scale: Scale
   extension: Extension
+  keySpelling?: KeySpelling
 }): SubstituteOption[] {
-  const { chord, index, progression, key, scale, extension } = opts
+  const { chord, index, progression, key, scale, extension, keySpelling } = opts
   const ext = nonDiatonicExtension(extension)
-  const diatonic = diatonicChords(key, scale, extension)
+  const diatonic = diatonicChords(key, scale, extension, keySpelling)
   const currentSig = chordSig(chord)
   const seen = new Set<string>([currentSig])
   const out: SubstituteOption[] = []
@@ -113,7 +115,7 @@ export function suggestSubstitutes(opts: {
     chord.degree !== next.degree // don't tonicize self
   ) {
     push(
-      makeSecondaryDominant(key, scale, next, ext),
+      makeSecondaryDominant(key, scale, next, ext, keySpelling),
       `V/${next.roman.replace(/[\u266d\u266f].*/u, '').replace(/(maj|min|7|9|sus|dim|aug|\+|add).*/, '')}`,
       'secondary',
       `dominant of the next chord (${next.roman})`,
@@ -142,7 +144,7 @@ export function suggestSubstitutes(opts: {
   for (const def of borrowedPool) {
     if (out.length >= 5) break
     push(
-      makeBorrowedChord(key, scale, def, ext),
+      makeBorrowedChord(key, scale, def, ext, keySpelling),
       def.label,
       'modal',
       'borrowed from parallel mode',
@@ -157,6 +159,7 @@ export function diatonicSubstitutes(opts: {
   key: PitchClass
   scale: Scale
   extension: Extension
+  keySpelling?: KeySpelling
 }): Chord[] {
-  return diatonicChords(opts.key, opts.scale, opts.extension)
+  return diatonicChords(opts.key, opts.scale, opts.extension, opts.keySpelling)
 }

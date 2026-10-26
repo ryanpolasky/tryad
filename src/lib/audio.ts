@@ -153,6 +153,31 @@ function makePluckVoice(output: Tone.ToneAudioNode): Voice & { loaded: Promise<v
   }
 }
 
+function makeLeadVoice(output: Tone.ToneAudioNode): Voice & { loaded: Promise<void> } {
+  const synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'square' } as Tone.OmniOscillatorOptions,
+    envelope: { attack: 0.012, decay: 0.12, sustain: 0.42, release: 0.18 },
+    portamento: 0,
+  })
+  const vibrato = new Tone.Vibrato({ frequency: 5.2, depth: 0.08, wet: 0.2 })
+  synth.volume.value = -7
+  synth.chain(vibrato, output)
+  return {
+    triggerAttackRelease(notes, duration, time, velocity) {
+      synth.triggerAttackRelease(notes, duration, time, velocity)
+    },
+    releaseAll(time) {
+      synth.releaseAll(time)
+    },
+    dispose() {
+      synth.dispose()
+      vibrato.dispose()
+    },
+    output: synth,
+    loaded: Promise.resolve(),
+  }
+}
+
 function buildVoice(
   id: InstrumentId,
   output: Tone.ToneAudioNode,
@@ -169,7 +194,7 @@ function buildVoice(
     case 'pluck':
       return makePluckVoice(output)
     case 'lead':
-      return makePluckVoice(output)
+      return makeLeadVoice(output)
     case 'bass-electric':
       return makeSamplerVoice(
         { E1: 'E1.mp3', A1: 'A1.mp3', D2: 'D2.mp3', G2: 'G2.mp3', A2: 'A2.mp3' },

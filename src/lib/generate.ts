@@ -13,6 +13,7 @@ function choose<T>(items: T[], rng: () => number): T {
 export function generateChords(project: Project, section: Section, rng = Math.random): Section {
   const progression = generateProgression({
     key: project.key,
+    keySpelling: project.keySpelling,
     scaleId: project.scaleId,
     moodId: project.moodId,
     length: section.chords.length,
@@ -122,6 +123,7 @@ export interface VibeSelection {
   drumStyle: string
   instrument: string
   key?: PitchClass
+  keySpelling?: Project['keySpelling']
   description: string
 }
 
@@ -153,6 +155,7 @@ export function matchVibe(text: string, project: Project): VibeSelection {
     const aliases: Record<string, string> = { Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#', Bb: 'A#' }
     const note = aliases[keyMatch[1]] ?? keyMatch[1]
     selection.key = names.indexOf(note) as PitchClass
+    selection.keySpelling = keyMatch[1].includes('b') ? 'flat' : keyMatch[1].includes('#') ? 'sharp' : undefined
     if (/minor|min/i.test(keyMatch[2] ?? '')) selection.scaleId = 'minor'
     else if (/major|maj/i.test(keyMatch[2] ?? '')) selection.scaleId = 'major'
   }
@@ -182,6 +185,7 @@ export function generateVibeProject(project: Project, text: string, rng = Math.r
     moodId: vibe.moodId,
     scaleId: vibe.scaleId,
     key,
+    keySpelling: vibe.key !== undefined ? vibe.keySpelling : project.keySpelling,
     bpm: vibe.bpm,
     extension: vibe.extension,
     tracks: project.tracks.map((track) => track.kind === 'chords' ? { ...track, instrument: vibe.instrument } : track.kind === 'drums' ? { ...track, style: vibe.drumStyle } : track),
@@ -196,8 +200,8 @@ export function generateVibeProject(project: Project, text: string, rng = Math.r
   return { project: { ...generated, sections }, description: vibe.description }
 }
 
-export function diatonicChordSet(key: PitchClass, scaleId: ScaleId, extension: Extension): Chord[] {
-  return diatonicChords(key, SCALES[scaleId], extension)
+export function diatonicChordSet(key: PitchClass, scaleId: ScaleId, extension: Extension, spelling?: Project['keySpelling']): Chord[] {
+  return diatonicChords(key, SCALES[scaleId], extension, spelling)
 }
 
 export { regenerateChordInProgression, ALL_KEYS }

@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChordVisualizer, type VisualizerMode } from '../ChordVisualizer'
-import { ALL_KEYS, diatonicChords, pcName, SCALES, SCALE_LIST } from '../../lib/theory'
-import type { Chord, Extension, PitchClass, ScaleId } from '../../lib/theory'
+import { diatonicChords, keyName, keySignaturePrefersFlats, KEY_OPTIONS, SCALES, SCALE_LIST } from '../../lib/theory'
+import type { Chord, Extension, KeySpelling, PitchClass, ScaleId } from '../../lib/theory'
 import type { Project, Section } from '../../lib/project'
 import { suggestSubstitutes } from '../../lib/substitutes'
 import { midiToNoteName, voiceChord } from '../../lib/theory'
+import { PianoRollEditor } from './PianoRollEditor'
+import { DrumStepEditor } from './DrumStepEditor'
+import type { DrumGrid, NoteEvent } from '../../lib/project'
 
 type PaletteTab = 'In Key' | 'Search' | 'Suggestions' | 'Other Key' | 'Voicings' | 'Visualizer'
 type EditorKind = 'melody' | 'bass' | 'drums' | null
@@ -27,6 +30,15 @@ interface StudioBottomPanelProps {
   onPreview: (chord: Chord) => void
   onVisualMode: (mode: VisualizerMode) => void
   visualMode: VisualizerMode
+  playing: boolean
+  playheadBeat: number
+  playingChord: Chord | null
+  playingInversion: number
+  onNotesChange: (kind: 'melody' | 'bass', notes: NoteEvent[]) => void
+  onDrumsChange: (grid: DrumGrid) => void
+  onPreviewNote: (midi: number) => void
+  onRegenerate: (kind: 'melody' | 'bass' | 'drums') => void
+  onEditorStyleChange: (kind: 'melody' | 'bass' | 'drums', style: string, drums?: DrumGrid) => void
 }
 
 function parseChordSymbol(input: string, project: Project): { chord: Chord; inversion?: number } | null {
@@ -71,18 +83,22 @@ function parseChordSymbol(input: string, project: Project): { chord: Chord; inve
 
 export function StudioBottomPanel({
   project, section, chordIndex, open, editor, requestedTab, previousChord, roman, onRoman, onClose, onTabChange,
-  onAssign, onInversion, onOctave, onPreview, onVisualMode, visualMode,
+  onAssign, onInversion, onOctave, onPreview, onVisualMode, visualMode, playing, playheadBeat, playingChord,
+  playingInversion, onNotesChange, onDrumsChange, onPreviewNote, onRegenerate, onEditorStyleChange,
 }: StudioBottomPanelProps) {
   const [tab, setTab] = useState<PaletteTab>('In Key')
   const [search, setSearch] = useState('')
   const [otherKey, setOtherKey] = useState<PitchClass>(project.key)
+  const [otherSpelling, setOtherSpelling] = useState<KeySpelling | undefined>(project.keySpelling)
   const [otherScale, setOtherScale] = useState<ScaleId>(project.scaleId)
   const [extensions, setExtensions] = useState<Extension>(project.extension)
   useEffect(() => setTab(requestedTab), [requestedTab])
   const slot = section.chords[chordIndex]
   const chord = slot?.chord
+  const visualChord = playing && playingChord ? playingChord : chord
+  const visualInversion = playing && playingChord ? playingInversion : (slot?.inversion ?? 0)
   const scale = SCALES[project.scaleId]
-  const palette = useMemo(() => diatonicChords(project.key, scale, extensions), [project.key, scale, extensions])
+  const palette = useMemo(() => diatonicChords(project.key, scale, extensions, project.keySpelling), [project.key, project.keySpelling, scale, extensions])
   const suggestions = useMemo(() => chord ? suggestSubstitutes({
     chord,
     index: chordIndex,
@@ -90,8 +106,10 @@ export function StudioBottomPanel({
     key: project.key,
     scale,
     extension: project.extension,
+    keySpelling: project.keySpelling,
   }) : [], [chord, chordIndex, section, project, scale])
-  const otherPalette = useMemo(() => diatonicChords(otherKey, SCALES[otherScale], extensions), [otherKey, otherScale, extensions])
+  const otherPalette = useMemo(() => diatonicChords(otherKey, SCALES[otherScale], extensions, otherSpelling), [otherKey, otherSpelling, otherScale, extensions])
+  const preferFlat = keySignaturePrefersFlats(project.key, scale, project.keySpelling)
   const parsed = search ? parseChordSymbol(search, project) : null
   const inversion = slot?.inversion ?? 0
   const voiced = chord ? voiceChord(chord, 4 + (slot?.octave ?? 0), { forcedInversion: inversion }) : []
@@ -101,7 +119,7 @@ export function StudioBottomPanel({
     <section className="studio-bottom-panel" aria-label="Studio editor panel">
       <div className="studio-panel-header">
         <div className="studio-panel-tabs">
-          {(editor ? [editor === 'drums' ? 'Drum editor' : `${editor[0].toUpperCase()}${editor.slice(1)} editor`] : [tab]).map((label) => <span key={label}>{label}</span>)}
+          {editor ? <span>{editor === 'drums' ? 'Drum editor' : `${editor[0].toUpperCase()}${editor.slice(1)} editor`}</span> : null}
           {!editor ? (['In Key', 'Search', 'Suggestions', 'Other Key', 'Voicings', 'Visualizer'] as PaletteTab[]).map((item) => (
             <button type="button" className={tab === item ? 'active' : ''} key={item} onClick={() => {
               setTab(item)
@@ -111,17 +129,38 @@ export function StudioBottomPanel({
         </div>
         <div className="studio-panel-tools">
           {!editor && (tab === 'In Key' || tab === 'Search' || tab === 'Suggestions' || tab === 'Other Key') ? (
-            <button type="button" className={`studio-roman-toggle ${roman ? 'active' : ''}`} onClick={() => onRoman(!roman)}>Roman</button>
+            <button type="button" role="switch" aria-checked={roman} aria-label="Roman numerals" className={`studio-roman-toggle ${roman ? 'active' : ''}`} onClick={() => onRoman(!roman)}><span>Roman numerals</span><i /></button>
           ) : null}
           <span className="studio-panel-selected">{chord?.symbol ?? 'Select a chord'}</span>
           <button type="button" aria-label="Close editor panel" onClick={onClose}>×</button>
         </div>
       </div>
       {editor ? (
-        <div className="studio-placeholder-editor">
-          <div className="studio-placeholder-icon">{editor === 'drums' ? '▦' : '♫'}</div>
-          <div><strong>{editor === 'drums' ? 'Drum step editor' : `${editor} piano roll`}</strong><p>This clip editor arrives in phase 2. Your generated clip is ready to play and export.</p></div>
-        </div>
+        editor === 'drums' ? (
+          <DrumStepEditor
+            section={section}
+            style={project.tracks.find((track) => track.kind === 'drums')?.style ?? 'boom'}
+            playing={playing}
+            playheadBeat={playheadBeat}
+            onGridChange={onDrumsChange}
+            onPresetChange={(style, grid) => onEditorStyleChange('drums', style, grid)}
+          />
+        ) : (
+          <PianoRollEditor
+            key={`${editor}-${section.id}`}
+            section={section}
+            kind={editor}
+            scaleId={project.scaleId}
+            projectKey={project.key}
+            style={project.tracks.find((track) => track.kind === editor)?.style ?? (editor === 'bass' ? 'root' : 'flowing')}
+            playing={playing}
+            playheadBeat={playheadBeat}
+            onNotesChange={(notes) => onNotesChange(editor, notes)}
+            onPreviewNote={onPreviewNote}
+            onRegenerate={() => onRegenerate(editor)}
+            onStyleChange={(style) => onEditorStyleChange(editor, style)}
+          />
+        )
       ) : tab === 'Voicings' ? (
         <div className="studio-voicings-content">
           <div className="studio-voicing-controls">
@@ -133,15 +172,15 @@ export function StudioBottomPanel({
             <div className="studio-octave-control"><span>Octave</span><button type="button" onClick={() => onOctave(Math.max(-1, (slot?.octave ?? 0) - 1))}>−</button><b>{slot?.octave ?? 0}</b><button type="button" onClick={() => onOctave(Math.min(1, (slot?.octave ?? 0) + 1))}>+</button></div>
             <span className="studio-note-list">{voiced.map(midiToNoteName).join(' · ')}</span>
           </div>
-          {chord ? <ChordVisualizer chord={chord} inversion={inversion} mode={visualMode} onModeChange={onVisualMode} onCycleInversion={() => onInversion((inversion + 1) % chord.intervals.length)} /> : null}
+          {visualChord ? <ChordVisualizer chord={visualChord} inversion={visualInversion} preferFlat={preferFlat} mode={visualMode} onModeChange={onVisualMode} onCycleInversion={() => onInversion((visualInversion + 1) % visualChord.intervals.length)} /> : null}
         </div>
       ) : tab === 'Visualizer' ? (
-        <div className="studio-visualizer-content">{chord ? <ChordVisualizer chord={chord} inversion={inversion} mode={visualMode} onModeChange={onVisualMode} /> : <p className="studio-muted">Select a chord to see its voicing.</p>}</div>
+        <div className="studio-visualizer-content">{visualChord ? <ChordVisualizer chord={visualChord} inversion={visualInversion} preferFlat={preferFlat} mode={visualMode} onModeChange={onVisualMode} /> : <p className="studio-muted">Select a chord to see its voicing.</p>}</div>
       ) : (
         <div className="studio-palette-content">
           <div className="studio-palette-sidebar">
             <span>Chord palette</span>
-            <small>{pcName(project.key)} {SCALES[project.scaleId].name}</small>
+            <small>{keyName(project.key, SCALES[project.scaleId], project.keySpelling)} {SCALES[project.scaleId].name}</small>
             <div className="studio-extension-row">
               {(['triad', 'seventh', 'ninth', 'sus2', 'sus4', 'add9'] as Extension[]).map((extension) => (
                 <button type="button" className={extensions === extension ? 'active' : ''} key={extension} onClick={() => setExtensions(extension)}>{extension === 'triad' ? 'Triads' : extension === 'seventh' ? '7th' : extension === 'ninth' ? '9th' : extension}</button>
@@ -158,7 +197,11 @@ export function StudioBottomPanel({
             ) : null}
             {tab === 'Other Key' ? (
               <div className="studio-other-key-selects">
-                <select aria-label="Other key" value={otherKey} onChange={(event) => setOtherKey(Number(event.target.value) as PitchClass)}>{ALL_KEYS.map((name, index) => <option key={name} value={index}>{name}</option>)}</select>
+                <select aria-label="Other key" value={`${otherKey}:${otherSpelling ?? 'natural'}`} onChange={(event) => {
+                  const [keyText, spellingText] = event.target.value.split(':')
+                  const option = KEY_OPTIONS.find((item) => item.key === Number(keyText) && (item.spelling ?? 'natural') === spellingText)
+                  if (option) { setOtherKey(option.key); setOtherSpelling(option.spelling) }
+                }}>{KEY_OPTIONS.map((item) => <option key={`${item.key}:${item.spelling ?? 'natural'}`} value={`${item.key}:${item.spelling ?? 'natural'}`}>{item.name}</option>)}</select>
                 <select aria-label="Other scale" value={otherScale} onChange={(event) => setOtherScale(event.target.value as ScaleId)}>{SCALE_LIST.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
               </div>
             ) : null}

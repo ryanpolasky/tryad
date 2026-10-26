@@ -1,7 +1,8 @@
 import type { DrumPiece } from './drums'
 import type { PlayMode } from './audio'
 import { generateProgression, diatonicChords, SCALES } from './theory'
-import type { Chord, Extension, MoodId, PitchClass, ScaleId } from './theory'
+import { respellChord } from './theory'
+import type { Chord, Extension, KeySpelling, MoodId, PitchClass, ScaleId } from './theory'
 import { storage } from './storage'
 
 export interface ChordSlot {
@@ -49,6 +50,7 @@ export interface Project {
   id: string
   title: string
   key: PitchClass
+  keySpelling?: KeySpelling
   scaleId: ScaleId
   moodId: MoodId
   extension: Extension
@@ -259,18 +261,23 @@ export function nextSectionName(sections: Section[]): string {
   return SECTION_NAMES[index]
 }
 
-export function transposeProject(project: Project, key: PitchClass, scaleId = project.scaleId): Project {
+export function transposeProject(
+  project: Project,
+  key: PitchClass,
+  scaleId = project.scaleId,
+  keySpelling = project.keySpelling,
+): Project {
   const delta = key - project.key
   const sections = project.sections.map((section) => ({
     ...section,
     chords: section.chords.map((slot) => {
       const root = ((slot.chord.root + delta + 12) % 12) as PitchClass
-      const replacement = diatonicChords(key, SCALES[scaleId], project.extension).find((chord) => chord.degree === slot.chord.degree)
-      const chord = replacement ?? { ...slot.chord, root, pitchClasses: slot.chord.intervals.map((n) => ((root + n) % 12) as PitchClass) }
+      const replacement = diatonicChords(key, SCALES[scaleId], project.extension, keySpelling).find((chord) => chord.degree === slot.chord.degree)
+      const chord = replacement ?? respellChord(slot.chord, root, key, SCALES[scaleId], keySpelling)
       return { ...slot, chord }
     }),
     melody: section.melody.map((note) => ({ ...note, midi: note.midi + delta })),
     bass: section.bass.map((note) => ({ ...note, midi: note.midi + delta })),
   }))
-  return { ...project, key, scaleId, sections }
+  return { ...project, key, keySpelling, scaleId, sections }
 }
