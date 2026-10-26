@@ -93,7 +93,7 @@ export default function Landing() {
             />
             <Feature
               title="secondary dominants"
-              body="V/V, V/vi, V/iv injected at mood-specific rates (jazz around 35%, cinematic 28%, pop 18%, sad 10%). the jazz progressions chain them into ii-V-I cadences when the template allows."
+              body="chorus splits can place a secondary dominant just before its target chord, adding a clear pull into the next chord."
             />
             <Feature
               title="modal interchange"

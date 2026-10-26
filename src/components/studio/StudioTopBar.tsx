@@ -96,9 +96,9 @@ export function StudioTopBar({
           onChange={(event) => setVibe(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && runGenerate()}
         />
-        <button type="button" className="studio-generate-button" onClick={runGenerate}>✦ Generate</button>
+        <button type="button" className="studio-generate-button" onClick={runGenerate}>Generate</button>
       </div>
-      <button type="button" className="studio-vibe-mobile" data-studio-menu-root aria-label="Open vibe generator" onClick={() => setOpenMenu(vibeOpen ? null : 'vibe')}>✦</button>
+      <button type="button" className="studio-vibe-mobile" data-studio-menu-root aria-label="Open vibe generator" onClick={() => setOpenMenu(vibeOpen ? null : 'vibe')}>Generate</button>
       <div className="studio-top-actions">
         <button type="button" className="studio-share" onClick={onShare}>Share</button>
         <div className="studio-export-wrap" data-studio-menu-root>

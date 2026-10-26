@@ -33,7 +33,7 @@ export function Logo() {
 
 export function Header({ variant = 'app' }: { variant?: 'app' | 'landing' }) {
   return (
-    <header className="border-b border-bg-line/60">
+    <header className={`border-b border-bg-line/60 ${variant === 'landing' ? 'landing-header' : ''}`}>
       <div className="max-w-7xl mx-auto px-5 sm:px-8 py-5 flex items-center gap-3">
         <Link to="/" className="flex items-center gap-3" aria-label="tryad, home">
           <Logo />

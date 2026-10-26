@@ -37,7 +37,7 @@ function App() {
   const [panelTab, setPanelTab] = useState<'In Key' | 'Voicings' | 'Visualizer'>('In Key')
   const [editor, setEditor] = useState<'melody' | 'bass' | 'drums' | null>(null)
   const [roman, setRoman] = useState(false)
-  const [zoom, setZoom] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 0.65 : 1)
+  const [zoom, setZoom] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 0.5 : 1)
   const [playheadBeat, setPlayheadBeat] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [playingChord, setPlayingChord] = useState<{ sectionId: string; index: number } | null>(null)
@@ -603,6 +603,7 @@ function App() {
       />
       <StudioTransport
         project={project}
+        playheadBeat={playheadBeat}
         playing={playing}
         visualMode={visualMode}
         isRendering={isRendering}

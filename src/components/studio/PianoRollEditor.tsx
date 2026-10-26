@@ -32,6 +32,7 @@ export function PianoRollEditor({
   const [length, setLength] = useState(1)
   const [notes, setNotes] = useState<NoteEvent[]>(section[kind])
   const [selected, setSelected] = useState<number | null>(null)
+  const [hoveredPitch, setHoveredPitch] = useState<number | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
@@ -192,7 +193,7 @@ export function PianoRollEditor({
             {section.chords.map((slot, index) => <div key={`${slot.chord.symbol}-${index}`} style={{ width: slot.beats * PIXELS_PER_BEAT }}><strong>{slot.chord.symbol}</strong><small>{slot.beats} beats</small></div>)}
           </div>
           <div className="studio-piano-keys">
-            {pitches.map((midi) => <button type="button" key={midi} className={`${midi % 12 === 0 ? 'octave' : ''} ${[1,3,6,8,10].includes(midi % 12) ? 'black' : ''}`} onClick={() => onPreviewNote(midi)} aria-label={`Preview ${midiToNoteName(midi)}`}>{midiToNoteName(midi)}</button>)}
+            {pitches.map((midi) => <button type="button" key={midi} className={`${midi % 12 === 0 ? 'octave' : ''} ${[1,3,6,8,10].includes(midi % 12) ? 'black' : ''}`} onMouseEnter={() => setHoveredPitch(midi)} onMouseLeave={() => setHoveredPitch(null)} onFocus={() => setHoveredPitch(midi)} onBlur={() => setHoveredPitch(null)} onClick={() => onPreviewNote(midi)} aria-label={`Preview ${midiToNoteName(midi)}`}>{midi % 12 === 0 || hoveredPitch === midi ? midiToNoteName(midi) : ''}</button>)}
           </div>
           <div
             className="studio-piano-note-area"
@@ -215,7 +216,7 @@ export function PianoRollEditor({
                 onPointerDown={(event) => beginGesture(event, index, false)}
                 onClick={() => setSelected(index)}
               >
-                <span>{midiToNoteName(note.midi)}</span>
+                {Math.min(note.dur, totalBeats - note.start) * PIXELS_PER_BEAT >= 28 ? <span>{midiToNoteName(note.midi)}</span> : null}
                 <i className="studio-note-resize-handle" aria-label="Resize note" onPointerDown={(event) => { event.stopPropagation(); beginGesture(event, index, true) }} />
               </button>
             ))}

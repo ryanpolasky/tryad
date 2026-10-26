@@ -141,6 +141,20 @@ export interface Chord {
   borrowed?: boolean
 }
 
+export type ChordFunction = 'home' | 'away' | 'tension' | 'borrowed'
+
+export function chordFunction(chord: Chord, key: PitchClass, scaleId: ScaleId): ChordFunction {
+  if (chord.secondaryOf !== undefined) return 'tension'
+  if (chord.borrowed) return 'borrowed'
+  const scalePitchClasses = new Set(SCALES[scaleId].intervals.map((interval) => (key + interval) % 12))
+  if (chord.pitchClasses.some((pitchClass) => !scalePitchClasses.has(pitchClass))) return 'borrowed'
+  const minor = ['minor', 'harmonicMinor', 'melodicMinor'].includes(scaleId)
+  if (chord.degree === 1 || chord.degree === 3 || (!minor && chord.degree === 6)) return 'home'
+  if (chord.degree === 5 || chord.degree === 7) return 'tension'
+  if (chord.degree === 2 || chord.degree === 4 || (minor && chord.degree === 6)) return 'away'
+  return 'away'
+}
+
 export function pcName(pc: PitchClass, preferFlat = false): string {
   const norm = ((pc % 12) + 12) % 12
   return preferFlat ? NOTE_NAMES_FLAT[norm] : NOTE_NAMES_SHARP[norm]
@@ -173,6 +187,61 @@ export function keySignaturePrefersFlats(
 
 export function keyName(key: PitchClass, scale: Scale, spelling?: KeySpelling): string {
   return pcName(key, spelling ? spelling === 'flat' : keySignaturePrefersFlats(key, scale))
+}
+
+const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'] as const
+const NATURAL_PITCH_CLASSES = [0, 2, 4, 5, 7, 9, 11]
+
+function romanDegree(label: string): number {
+  const numeral = label.match(/[IViv]+/)?.[0]?.toUpperCase()
+  return numeral ? ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'].indexOf(numeral) + 1 : 1
+}
+
+export function spellPitchClassByDegree(
+  root: PitchClass,
+  key: PitchClass,
+  scale: Scale,
+  degree: number,
+  spelling?: KeySpelling,
+): string {
+  const tonicLetter = LETTERS.indexOf(keyName(key, scale, spelling)[0] as typeof LETTERS[number])
+  const letterIndex = ((tonicLetter + degree - 1) % 7 + 7) % 7
+  let accidental = ((root - NATURAL_PITCH_CLASSES[letterIndex]) % 12 + 12) % 12
+  if (accidental > 6) accidental -= 12
+  return `${LETTERS[letterIndex]}${accidental > 0 ? '#'.repeat(accidental) : 'b'.repeat(-accidental)}`
+}
+
+function rootSpellingForChord(chord: Chord, key: PitchClass, scale: Scale, spelling?: KeySpelling): string {
+  const degree = chord.secondaryOf !== undefined
+    ? ((chord.secondaryOf - 1 + 4) % 7) + 1
+    : chord.borrowed
+      ? romanDegree(chord.roman)
+      : chord.degree || romanDegree(chord.roman)
+  return spellPitchClassByDegree(chord.root, key, scale, degree, spelling)
+}
+
+export function spellChordPitchClass(
+  chord: Chord,
+  pitchClass: PitchClass,
+  key: PitchClass,
+  scale: Scale,
+  spelling?: KeySpelling,
+): string {
+  const rootName = rootSpellingForChord(chord, key, scale, spelling)
+  const rootLetterIndex = LETTERS.indexOf(rootName[0] as typeof LETTERS[number])
+  const interval = chord.intervals.find((value) => (chord.root + value) % 12 === pitchClass) ?? 0
+  const intervalClass = interval % 12
+  const letterSteps = intervalClass === 0 ? 0
+    : [1, 2].includes(intervalClass) ? 1
+      : [3, 4].includes(intervalClass) ? 2
+        : intervalClass === 5 ? 3
+          : [6, 7, 8].includes(intervalClass) ? 4
+            : intervalClass === 9 ? chord.quality === 'dim' ? 6 : 5
+              : 6
+  const letterIndex = (rootLetterIndex + letterSteps) % 7
+  let accidental = ((pitchClass - NATURAL_PITCH_CLASSES[letterIndex]) % 12 + 12) % 12
+  if (accidental > 6) accidental -= 12
+  return `${LETTERS[letterIndex]}${accidental > 0 ? '#'.repeat(accidental) : 'b'.repeat(-accidental)}`
 }
 
 function triadIntervals(q: TriadQuality): number[] {
@@ -332,7 +401,6 @@ export function diatonicChords(
   extension: Extension,
   spelling?: KeySpelling,
 ): Chord[] {
-  const preferFlat = keySignaturePrefersFlats(key, scale, spelling)
   const chords: Chord[] = []
   for (let i = 0; i < 7; i++) {
     const degree = i + 1
@@ -354,7 +422,7 @@ export function diatonicChords(
     const seventhSemis =
       chordExtension === 'seventh' || chordExtension === 'ninth' ? rotated[6] : null
 
-    const rootName = pcName(root, preferFlat)
+    const rootName = spellPitchClassByDegree(root, key, scale, degree, spelling)
     chords.push({
       root,
       quality: q,
@@ -759,8 +827,8 @@ export function makeSecondaryDominant(
         return [0, 4, 7, 14]
     }
   })()
-  const preferFlat = keySignaturePrefersFlats(key, scale, spelling)
-  const rootName = pcName(root, preferFlat)
+  const dominantDegree = ((target.degree - 1 + 4) % 7) + 1
+  const rootName = spellPitchClassByDegree(root, key, scale, dominantDegree, spelling)
   const targetRomanRaw = ROMAN[target.degree - 1] ?? '?'
   const targetRoman =
     target.quality === 'maj' || target.quality === 'aug'
@@ -868,10 +936,7 @@ export function makeBorrowedChord(
       intervals = [...triad, 14]
       break
   }
-  // ♭VI / ♭VII should always spell with flats, regardless of source scale.
-  const labelUsesFlat = def.label.startsWith('♭')
-  const preferFlat = labelUsesFlat || keySignaturePrefersFlats(key, scale, spelling)
-  const rootName = pcName(root, preferFlat)
+  const rootName = spellPitchClassByDegree(root, key, scale, romanDegree(def.label), spelling)
   const symbol = symbolFor(rootName, def.quality, extension, seventhSemis)
   // append the extension suffix onto the borrowed roman.
   let romanSuffix = ''
@@ -965,23 +1030,6 @@ export function generateProgression(opts: {
     }
   }
 
-  // secondary dominants: replace i with V/(i+1).
-  // skip if target is tonic / dim / already non-diatonic.
-  const secondaryProb = (mood.secondaryProb ?? 0) * (extension === 'ninth' ? 0.55 : 1)
-  if (secondaryProb > 0) {
-    for (let i = 0; i < chords.length - 1; i++) {
-      const target = chords[i + 1]
-      const current = chords[i]
-      if (current.degree === 0) continue // already non-diatonic
-      if (target.degree === 0) continue // can't cleanly tonicize a non-diatonic target
-      if (target.degree === 1) continue // V/I is just V, boring
-      if (target.quality === 'dim') continue
-      if (rng() < secondaryProb) {
-        chords[i] = makeSecondaryDominant(opts.key, scale, target, appliedExtension, opts.keySpelling)
-      }
-    }
-  }
-
   return { key: opts.key, scaleId, moodId: mood.id, extension, chords, templateIdx: meta.templateIdx }
 }
 
@@ -1023,8 +1071,7 @@ export function respellChord(
   scale: Scale,
   spelling?: KeySpelling,
 ): Chord {
-  const preferFlat = keySignaturePrefersFlats(key, scale, spelling)
-  const rootName = pcName(root, preferFlat)
+  const rootName = rootSpellingForChord(chord, key, scale, spelling)
   const seventh = chord.intervals.length > 3 ? chord.intervals[3] : null
   return {
     ...chord,

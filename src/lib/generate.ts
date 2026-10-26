@@ -1,5 +1,5 @@
 import { DRUM_STYLES, type DrumPiece } from './drums'
-import { bassPitchClass, diatonicChords, generateProgression, keySignaturePrefersFlats, makeSecondaryDominant, regenerateChordInProgression, SCALES, ALL_KEYS } from './theory'
+import { bassPitchClass, diatonicChords, generateProgression, keySignaturePrefersFlats, regenerateChordInProgression, SCALES, ALL_KEYS } from './theory'
 import type { Chord, Extension, MoodId, PitchClass, ScaleId } from './theory'
 import { makeSection, sectionBeats, sectionRoleForName } from './project'
 import type { DrumGrid, NoteEvent, Project, Section, SectionRole, TrackConfig } from './project'
@@ -75,7 +75,7 @@ function sequenceForRole(
       chords[0] = diatonic[firstDegree - 1] ?? chords[0]
       if (chords.length > 1) {
         const harmonicDominant = diatonicChords(project.key, SCALES.harmonicMinor, project.extension, project.keySpelling)[4]
-        chords[chords.length - 1] = major ? diatonic[4] : harmonicDominant ?? diatonic[6] ?? chords[chords.length - 1]
+        chords[chords.length - 1] = major ? diatonic[4] : harmonicDominant ? { ...harmonicDominant, borrowed: true } : diatonic[6] ?? chords[chords.length - 1]
       }
     }
     if (role === 'chorus' && chords.length) {
@@ -97,10 +97,9 @@ function sequenceForRole(
         : [
             diatonic[3],
             choose([
-              harmonic[4],
-              diatonic[6],
-              makeSecondaryDominant(project.key, SCALES[project.scaleId], diatonic[6], project.extension, project.keySpelling),
-            ], rng),
+            harmonic[4] ? { ...harmonic[4], borrowed: true } : undefined,
+            diatonic[6],
+          ], rng),
           ]
       const validSplit = split.filter((chord): chord is Chord => Boolean(chord))
       if (validSplit.length === 2) {
@@ -108,6 +107,25 @@ function sequenceForRole(
         beats = [...beats.slice(0, -1), 2, 2]
       }
     }
+    for (let index = 1; index < chords.length; index++) {
+      if (chords[index - 1].root !== chords[index].root) continue
+      const replaceIndex = index === chords.length - 1 && ['chorus', 'bridge'].includes(role) ? index - 1 : index
+      if (slots[replaceIndex]?.locked || slots[index]?.locked) continue
+      const previousRoot = chords[replaceIndex - 1]?.root
+      const nextRoot = chords[replaceIndex + 1]?.root
+      const alternatives = [2, 4, 6]
+        .map((degree) => diatonic[degree - 1])
+        .filter((chord): chord is Chord => Boolean(chord) && chord.root !== previousRoot && chord.root !== nextRoot)
+      if (alternatives.length) chords[replaceIndex] = choose(alternatives, rng)
+    }
+    const scalePitchClasses = new Set(SCALES[project.scaleId].intervals.map((interval) => (project.key + interval) % 12))
+    chords.forEach((chord, index) => {
+      if (chord.borrowed || chord.secondaryOf !== undefined || chord.pitchClasses.every((pitchClass) => scalePitchClasses.has(pitchClass))) return
+      const replacement = diatonic[chord.degree - 1] ?? diatonic.find((candidate) =>
+        candidate.root !== chords[index - 1]?.root && candidate.root !== chords[index + 1]?.root
+      )
+      if (replacement) chords[index] = replacement
+    })
     latest = { chords, beats, templateIdx: progression.templateIdx ?? -1 }
     const startsWell = role !== 'chorus' || (major ? [1, 4] : [1, 6]).includes(chords[0]?.degree ?? 0)
     if (startsWell && !forbidden.has(chordSequenceKey(chords))) return latest
@@ -117,10 +135,16 @@ function sequenceForRole(
     for (let index = 0; index < latest.chords.length; index++) {
       if (role === 'bridge' && (index === 0 || index === latest.chords.length - 1)) continue
       if (role === 'chorus' && index === 0) continue
-      const alternate = diatonic.find((chord) => chord.symbol !== latest.chords[index].symbol)
-      if (!alternate) continue
-      const chords = latest.chords.map((chord, chordIndex) => chordIndex === index ? alternate : chord)
-      if (!forbidden.has(chordSequenceKey(chords))) return { ...latest, chords }
+      if (slots[index]?.locked) continue
+      const alternatives = diatonic.filter((chord) =>
+        chord.symbol !== latest.chords[index].symbol &&
+        chord.root !== latest.chords[index - 1]?.root &&
+        chord.root !== latest.chords[index + 1]?.root
+      )
+      for (const alternate of alternatives) {
+        const chords = latest.chords.map((chord, chordIndex) => chordIndex === index ? alternate : chord)
+        if (!forbidden.has(chordSequenceKey(chords))) return { ...latest, chords }
+      }
     }
   }
   return latest

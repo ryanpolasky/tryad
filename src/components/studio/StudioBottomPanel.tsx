@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChordVisualizer, type VisualizerMode } from '../ChordVisualizer'
-import { diatonicChords, keyName, keySignaturePrefersFlats, KEY_OPTIONS, SCALES, SCALE_LIST } from '../../lib/theory'
+import { chordFunction, diatonicChords, keyName, keySignaturePrefersFlats, KEY_OPTIONS, SCALES, SCALE_LIST } from '../../lib/theory'
 import type { Chord, Extension, KeySpelling, PitchClass, ScaleId } from '../../lib/theory'
 import type { Project, Section } from '../../lib/project'
 import { suggestSubstitutes } from '../../lib/substitutes'
@@ -235,10 +235,10 @@ export function StudioBottomPanel({
             <div className="studio-octave-control"><span>Octave</span><button type="button" onClick={() => onOctave(Math.max(-1, (slot?.octave ?? 0) - 1))}>−</button><b>{slot?.octave ?? 0}</b><button type="button" onClick={() => onOctave(Math.min(1, (slot?.octave ?? 0) + 1))}>+</button></div>
             <span className="studio-note-list">{voiced.map(midiToNoteName).join(' · ')}</span>
           </div>
-          {visualChord ? <ChordVisualizer chord={visualChord} inversion={visualInversion} preferFlat={preferFlat} mode={visualMode} onModeChange={onVisualMode} onCycleInversion={() => onInversion((visualInversion + 1) % visualChord.intervals.length)} /> : null}
+          {visualChord ? <ChordVisualizer chord={visualChord} inversion={visualInversion} preferFlat={preferFlat} projectKey={project.key} scale={scale} spelling={project.keySpelling} mode={visualMode} onModeChange={onVisualMode} onCycleInversion={() => onInversion((visualInversion + 1) % visualChord.intervals.length)} /> : null}
         </div>
       ) : tab === 'Visualizer' ? (
-        <div className="studio-visualizer-content">{visualChord ? <ChordVisualizer chord={visualChord} inversion={visualInversion} preferFlat={preferFlat} mode={visualMode} onModeChange={onVisualMode} /> : <p className="studio-muted">Select a chord to see its voicing.</p>}</div>
+        <div className="studio-visualizer-content">{visualChord ? <ChordVisualizer chord={visualChord} inversion={visualInversion} preferFlat={preferFlat} projectKey={project.key} scale={scale} spelling={project.keySpelling} mode={visualMode} onModeChange={onVisualMode} /> : <p className="studio-muted">Select a chord to see its voicing.</p>}</div>
       ) : (
         <div className="studio-palette-content">
           <div className="studio-palette-sidebar">
@@ -272,27 +272,26 @@ export function StudioBottomPanel({
               <div className="studio-suggestion-groups">
                 {(['function', 'tritone', 'secondary', 'borrowed', 'modal'] as const).map((category) => {
                   const items = suggestions.filter((item) => item.category === category)
-                  return items.length ? <div key={category}><small>{category}</small>{items.map((item) => <ChordButton key={`${item.chord.symbol}-${item.label}`} chord={item.chord} roman={roman} note={item.label} onClick={() => { onPreview(item.chord); onAssign(item.chord) }} />)}</div> : null
+                  return items.length ? <div key={category}><small>{category}</small>{items.map((item) => <ChordButton key={`${item.chord.symbol}-${item.label}`} chord={item.chord} roman={roman} functionKind={chordFunction(item.chord, project.key, project.scaleId)} note={item.label} onClick={() => { onPreview(item.chord); onAssign(item.chord) }} />)}</div> : null
                 })}
                 {!suggestions.length ? <span className="studio-muted">No suggestions for this chord.</span> : null}
               </div>
             ) : null}
             {tab === 'In Key' ? (
               <div className="studio-palette-sections">
-                <div className="studio-palette-row">
-                  <strong>In Key</strong>
-                  <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} note={chordFunction(item)} onClick={() => { onPreview(item); onAssign(item) }} />)}</div>
+                  <div className="studio-palette-row">
+                    <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} functionKind={chordFunction(item, project.key, project.scaleId)} onClick={() => { onPreview(item); onAssign(item) }} />)}</div>
                 </div>
                 {suggestions.some((item) => item.category === 'borrowed' || item.category === 'secondary') ? (
                   <div className="studio-palette-row">
                     <strong>Borrowed / secondary</strong>
-                    <div className="studio-chord-palette">{suggestions.filter((item) => item.category === 'borrowed' || item.category === 'secondary').map((item) => <ChordButton key={`${item.chord.symbol}-${item.label}`} chord={item.chord} roman={roman} note={item.label} onClick={() => { onPreview(item.chord); onAssign(item.chord) }} />)}</div>
+                    <div className="studio-chord-palette">{suggestions.filter((item) => item.category === 'borrowed' || item.category === 'secondary').map((item) => <ChordButton key={`${item.chord.symbol}-${item.label}`} chord={item.chord} roman={roman} functionKind={chordFunction(item.chord, project.key, project.scaleId)} note={item.label} onClick={() => { onPreview(item.chord); onAssign(item.chord) }} />)}</div>
                   </div>
                 ) : null}
               </div>
             ) : null}
-            {tab === 'Other Key' ? <div className="studio-chord-palette">{otherPalette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
-            {tab === 'Search' && !search ? <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
+            {tab === 'Other Key' ? <div className="studio-chord-palette">{otherPalette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} functionKind={chordFunction(item, otherKey, otherScale)} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
+            {tab === 'Search' && !search ? <div className="studio-chord-palette">{palette.map((item) => <ChordButton key={item.symbol} chord={item} roman={roman} functionKind={chordFunction(item, project.key, project.scaleId)} onClick={() => { onPreview(item); onAssign(item) }} />)}</div> : null}
             {tab === 'Search' && parsed ? <div className="studio-search-hint">Click the chord chip to assign it to the selected slot.</div> : null}
           </div>
         </div>
@@ -301,14 +300,7 @@ export function StudioBottomPanel({
   )
 }
 
-function ChordButton({ chord, roman, note, onClick }: { chord: Chord; roman: boolean; note?: string; onClick: () => void }) {
-  return <button type="button" className="studio-chord-chip" onClick={onClick}><strong>{roman ? chord.roman : chord.symbol}</strong>{!roman ? <small>{chord.roman}</small> : null}<small className="studio-chord-function">{note ?? chordFunction(chord)}</small></button>
-}
-
-function chordFunction(chord: Chord): string {
-  const degree = chord.roman.replace(/[^ivIV]/g, '')
-  if (degree === 'I' || degree === 'i' || degree === 'vi' || degree === 'VI') return 'tonic'
-  if (degree === 'V' || degree === 'v' || degree === 'vii' || degree === 'vii°' || degree === 'VII') return 'dominant'
-  if (degree === 'ii' || degree === 'II' || degree === 'IV' || degree === 'iv') return 'predominant'
-  return 'mediant'
+function ChordButton({ chord, roman, note, functionKind, onClick }: { chord: Chord; roman: boolean; note?: string; functionKind: ReturnType<typeof chordFunction>; onClick: () => void }) {
+  const functionLabel = { home: 'home', away: 'away', tension: 'tension', borrowed: 'borrowed' }[functionKind]
+  return <button type="button" className={`studio-chord-chip function-${functionKind}`} style={{ backgroundColor: `var(--${functionKind})` }} title={note ?? functionLabel} onClick={onClick}><span className="studio-chord-title"><small>{chord.roman}</small><small>{functionLabel}</small></span><strong>{roman ? chord.roman : chord.symbol}</strong></button>
 }

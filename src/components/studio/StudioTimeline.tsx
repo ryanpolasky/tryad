@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DRUM_STYLES } from '../../lib/drums'
 import { INSTRUMENTS, PLAY_MODE_GROUPS } from '../../lib/audio'
-import { MOODS, SCALE_LIST } from '../../lib/theory'
+import { chordFunction, MOODS, SCALE_LIST } from '../../lib/theory'
 import type { MoodId } from '../../lib/theory'
 import { sectionLengthLabel } from '../../lib/project'
 import type { ChordSlot, Project, Section, TrackConfig, TrackKind } from '../../lib/project'
@@ -50,6 +50,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
   const sectionMenu = openMenu?.startsWith('section:') ? openMenu.slice(8) : null
   const trackMenu = openMenu?.startsWith('track:') ? openMenu.slice(6) as TrackKind : null
   const settings = openMenu?.startsWith('settings:') ? openMenu.slice(9) as TrackKind : null
+  const addTrackOpen = openMenu === 'add-track'
   const setSectionMenu = (id: string | null) => setOpenMenu(id ? `section:${id}` : null)
   const setTrackMenu = (kind: TrackKind | null) => setOpenMenu(kind ? `track:${kind}` : null)
   const [dragChord, setDragChord] = useState<number | null>(null)
@@ -96,7 +97,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
   const missingTracks = (['melody', 'bass', 'drums'] as const).filter((kind) => !tracks.some((track) => track.kind === kind))
 
   return (
-    <div className="studio-workspace">
+    <>
       <div className="studio-section-tabs">
         {project.sections.map((item, index) => (
           <div className={`studio-section-tab ${item.id === section.id ? 'active' : ''}`} key={item.id} data-studio-menu-root>
@@ -120,20 +121,26 @@ export function StudioTimeline(props: StudioTimelineProps) {
           </div>
         ))}
         <button type="button" className="studio-add-section" aria-label="Add section" onClick={onAddSection}>+</button>
+        {missingTracks.length ? <div className="studio-mobile-add-track" data-studio-menu-root>
+          <button type="button" onClick={() => setOpenMenu(addTrackOpen ? null : 'add-track')}>+ Track</button>
+          {addTrackOpen ? <div className="studio-popover studio-add-track-menu">{missingTracks.map((kind) => <button type="button" key={kind} onClick={() => { onAddTrack(kind); setOpenMenu(null) }}>{TRACK_LABELS[kind]}</button>)}</div> : null}
+        </div> : null}
         <div className="studio-tabs-spacer" />
         <span className="studio-position-readout">{positionBar}.{positionBeat} · {sectionLengthLabel(totalBeats)}</span>
       </div>
+      <div className="studio-workspace">
       <div className="studio-grid">
         <div className="studio-ruler-label">
           <span>TRACKS</span>
           <div className="studio-zoom">
-            <button type="button" aria-label="Zoom out" onClick={() => onZoom(Math.max(0.65, zoom - 0.1))}>−</button>
+            <button type="button" aria-label="Zoom out" onClick={() => onZoom(Math.max(0.5, zoom - 0.1))}>−</button>
             <span>{Math.round(zoom * 100)}%</span>
             <button type="button" aria-label="Zoom in" onClick={() => onZoom(Math.min(1.8, zoom + 0.1))}>+</button>
           </div>
         </div>
         <div className="studio-ruler-scroll">
-          <div className="studio-ruler" style={{ width: timelineWidth, backgroundSize: `${pxPerBeat}px 100%` }} onClick={rulerSeek}>
+          <div className="studio-ruler" style={{ width: timelineWidth }} onClick={rulerSeek}>
+            {Array.from({ length: Math.ceil(timelineWidth / pxPerBeat) + 1 }, (_, beat) => <span className={`studio-ruler-gridline ${beat % 4 === 0 ? 'bar' : ''}`} style={{ left: beat * pxPerBeat }} key={beat} />)}
             {Array.from({ length: Math.ceil(totalBeats / 4) + 1 }, (_, bar) => (
               <span className="studio-bar-marker" style={{ left: bar * 4 * pxPerBeat }} key={bar}>{bar + 1}</span>
             ))}
@@ -193,11 +200,10 @@ export function StudioTimeline(props: StudioTimelineProps) {
             <div className="studio-lane-wrap">
               <div
                 className="studio-lane"
-                style={{
-                  width: timelineWidth,
-                  backgroundSize: `${pxPerBeat}px 100%`,
-                }}
+                style={{ width: timelineWidth }}
               >
+                {Array.from({ length: Math.ceil(totalBeats / 4) }, (_, bar) => <span className={`studio-lane-bar ${bar % 2 ? 'alt' : ''}`} style={{ left: bar * 4 * pxPerBeat, width: 4 * pxPerBeat }} key={`bar-${bar}`} />)}
+                {Array.from({ length: Math.ceil(timelineWidth / pxPerBeat) + 1 }, (_, beat) => <span className={`studio-lane-gridline ${beat % 4 === 0 ? 'bar' : ''}`} style={{ left: beat * pxPerBeat }} key={beat} />)}
                 {track.kind === 'chords' ? (
                   <div className="studio-chord-lane" style={{ width: sectionWidth }}>
                     {section.chords.map((slot, index) => {
@@ -205,8 +211,9 @@ export function StudioTimeline(props: StudioTimelineProps) {
                       const chordMenuId = `chord:${section.id}:${index}`
                       return (
                         <div
-                          className={`studio-chord-block ${selectedChord === index ? 'selected' : ''} ${slot.locked ? 'locked' : ''}`}
+                          className={`studio-chord-block ${selectedChord === index ? 'selected' : ''} ${slot.locked ? 'locked' : ''} ${beats * pxPerBeat < 110 ? 'compact' : ''}`}
                           style={{ width: beats * pxPerBeat }}
+                          data-function={chordFunction(slot.chord, project.key, project.scaleId)}
                           key={`${section.id}-${index}-${slot.chord.symbol}`}
                           data-studio-menu-root
                           draggable
@@ -216,9 +223,9 @@ export function StudioTimeline(props: StudioTimelineProps) {
                           onClick={() => { onSelectChord(index); onPreviewChord(index) }}
                           onDoubleClick={() => onOpenPalette(index)}
                         >
-                          <strong>{roman ? slot.chord.roman : slot.chord.symbol}</strong>
-                          {!roman ? <small>{slot.chord.roman}</small> : null}
-                          <div className={`studio-chord-actions ${beats * pxPerBeat < 90 ? 'compact' : ''}`}>
+                          <span className={`studio-chord-title ${roman ? 'roman' : ''}`}><small>{slot.chord.roman}</small><small>{chordFunction(slot.chord, project.key, project.scaleId)}</small></span>
+                          <strong>{slot.chord.symbol}</strong>
+                            <div className={`studio-chord-actions ${beats * pxPerBeat < 110 ? 'compact' : ''}`}>
                             <button type="button" aria-label={`Regenerate chord ${index + 1}`} title="Regenerate" onClick={(event) => { event.stopPropagation(); onRerollChord(index) }}><Icon name="refresh" /></button>
                             <button type="button" aria-label={`${slot.locked ? 'Unlock' : 'Lock'} chord ${index + 1}`} title={slot.locked ? 'Unlock' : 'Lock'} onClick={(event) => { event.stopPropagation(); onUpdateChord(index, { ...slot, locked: !slot.locked }) }}><Icon name={slot.locked ? 'unlock' : 'lock'} /></button>
                             {section.chords.length > 1 ? <button type="button" aria-label={`Delete chord ${index + 1}`} title="Delete" onClick={(event) => { event.stopPropagation(); onDeleteChord(index) }}><Icon name="trash" /></button> : null}
@@ -288,9 +295,18 @@ export function StudioTimeline(props: StudioTimelineProps) {
                 <button type="button" key={kind} onClick={() => onAddTrack(kind)}><span>+</span><TrackIcon kind={kind} /> Add {TRACK_LABELS[kind]}</button>
               ))}
             </div>
-            <div className="studio-lane-wrap"><div className="studio-lane empty" style={{ width: timelineWidth, backgroundSize: `${pxPerBeat}px 100%` }} /></div>
+            <div className="studio-lane-wrap"><div className="studio-lane empty" style={{ width: timelineWidth }}>{Array.from({ length: Math.ceil(timelineWidth / pxPerBeat) + 1 }, (_, beat) => <span className={`studio-lane-gridline ${beat % 4 === 0 ? 'bar' : ''}`} style={{ left: beat * pxPerBeat }} key={beat} />)}</div></div>
           </div>
         ) : null}
+        <div className="studio-track-row studio-empty-row" aria-hidden="true">
+          <div className="studio-track-head" />
+          <div className="studio-lane-wrap">
+            <div className="studio-lane studio-empty-lane" style={{ width: timelineWidth }}>
+              {Array.from({ length: Math.ceil(totalBeats / 4) }, (_, bar) => <span className={`studio-lane-bar ${bar % 2 ? 'alt' : ''}`} style={{ left: bar * 4 * pxPerBeat, width: 4 * pxPerBeat }} key={`bar-${bar}`} />)}
+              {Array.from({ length: Math.ceil(timelineWidth / pxPerBeat) + 1 }, (_, beat) => <span className={`studio-lane-gridline ${beat % 4 === 0 ? 'bar' : ''}`} style={{ left: beat * pxPerBeat }} key={beat} />)}
+            </div>
+          </div>
+        </div>
       </div>
       {settings ? (
         <GeneratorSettingsPopover
@@ -304,7 +320,8 @@ export function StudioTimeline(props: StudioTimelineProps) {
           onRegenerate={() => { onOpenGenerator(settings); setOpenMenu(null) }}
         />
       ) : null}
-    </div>
+      </div>
+    </>
   )
 }
 
@@ -326,7 +343,7 @@ function Icon({ name }: { name: string }) {
           : name === 'bass' ? <><path d="M4 18V6" /><path d="M8 16V8" /><path d="M12 19V5" /><path d="M16 15V9" /><path d="M20 17V7" /></>
             : name === 'drums' ? <><circle cx="12" cy="12" r="8" /><path d="m6.4 6.4 11.2 11.2M17.6 6.4 6.4 17.6" /></>
               : name === 'refresh' ? <><path d="M20 7v5h-5" /><path d="M4.5 10a7.5 7.5 0 0 1 13-3L20 10M4 17v-5h5" /><path d="M19.5 14a7.5 7.5 0 0 1-13 3L4 14" /></>
-                : name === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" fill="var(--color-d16c084c)" /><circle cx="15" cy="12" r="2" fill="var(--color-d16c084c)" /><circle cx="11" cy="18" r="2" fill="var(--color-d16c084c)" /></>
+                      : name === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" fill="var(--hot)" /><circle cx="15" cy="12" r="2" fill="var(--hot)" /><circle cx="11" cy="18" r="2" fill="var(--hot)" /></>
                   : name === 'more' ? <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>
                     : name === 'lock' || name === 'unlock' ? <><rect x="5" y="10" width="14" height="11" rx="2" /><path d={name === 'lock' ? 'M8 10V7a4 4 0 1 1 8 0v3' : 'M8 10V7a4 4 0 0 1 7-2'} /></>
                       : name === 'trash' ? <><path d="M4 7h16M10 11v6M14 11v6" /><path d="m6 7 1 14h10l1-14M9 7V4h6v3" /></>

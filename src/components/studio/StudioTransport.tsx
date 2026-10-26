@@ -9,6 +9,7 @@ export type StudioTool = 'chords' | 'voicings' | 'melody' | 'bass' | 'drums' | '
 
 interface StudioTransportProps {
   project: Project
+  playheadBeat: number
   playing: boolean
   visualMode: VisualizerMode
   isRendering: boolean
@@ -36,7 +37,7 @@ const TOOL_ITEMS: { id: StudioTool; icon: string; title: string; description: st
 ]
 
 export function StudioTransport({
-  project, playing, visualMode, isRendering, onMasterVolume, onMetronome, onBpm, onKey,
+  project, playheadBeat, playing, visualMode, isRendering, onMasterVolume, onMetronome, onBpm, onKey,
   onExtension, onPlay, onStart, onLoop, onVisualMode, onTool,
 }: StudioTransportProps) {
   const { openMenu, setOpenMenu } = useStudioMenu()
@@ -47,6 +48,9 @@ export function StudioTransport({
   const preferredOption = KEY_OPTIONS.find((item) => item.key === project.key && item.name === preferredKeyName)
     ?? KEY_OPTIONS.find((item) => item.key === project.key)
   const selectedKey = preferredOption ? `${preferredOption.key}:${preferredOption.spelling ?? 'natural'}` : `${project.key}:natural`
+  const positionBar = Math.floor(playheadBeat / 4) + 1
+  const positionBeat = Math.floor(playheadBeat % 4) + 1
+  const positionSixteenth = Math.floor((playheadBeat % 1) * 4) + 1
 
   return (
     <footer className="studio-transport">
@@ -56,6 +60,10 @@ export function StudioTransport({
         <output>{Math.round(project.masterVolume * 100)}%</output>
       </div>
       <div className="studio-transport-center">
+        <div className="studio-lcd-position" aria-label={`Position ${positionBar}.${positionBeat}.${positionSixteenth}`}>
+          <span>{positionBar}.{positionBeat}.{positionSixteenth}</span>
+          <small>BAR · BEAT · 16TH</small>
+        </div>
         <button type="button" className={`studio-transport-icon ${project.metronome ? 'active' : ''}`} aria-label="Toggle metronome" title="Metronome" onClick={onMetronome}><Icon name="metronome" /></button>
         <BpmControl value={project.bpm} onCommit={onBpm} />
         <div className="studio-key-wrap" data-studio-menu-root>
