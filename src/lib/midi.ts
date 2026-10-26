@@ -3,6 +3,9 @@ import type { Progression } from './theory'
 import { voiceChord, midiToNoteName } from './theory'
 import { GM_PERCUSSION, getDrumStyle } from './drums'
 import type { DrumPiece } from './drums'
+import type { Project, TrackKind } from './project'
+import { sectionBeats } from './project'
+import { pickInversion } from './theory'
 
 export interface MidiExportOptions {
   bpm: number
@@ -85,6 +88,77 @@ export function progressionToMidi(prog: Progression, opts: MidiExportOptions): U
     }
   }
 
+  return midi.toArray()
+}
+
+export function songToMidi(project: Project, chordsOnly = false): Uint8Array {
+  const midi = new Midi()
+  midi.header.setTempo(project.bpm)
+  midi.header.timeSignatures = [{ ticks: 0, timeSignature: [4, 4], measures: 0 }]
+  const kinds: TrackKind[] = chordsOnly
+    ? ['chords']
+    : project.tracks.map((track) => track.kind)
+  const uniqueKinds = Array.from(new Set(kinds))
+  const tracks = new Map<TrackKind, ReturnType<Midi['addTrack']>>()
+  uniqueKinds.forEach((kind) => {
+    const track = midi.addTrack()
+    track.name = kind === 'chords' ? `${project.title} · chords` : kind
+    if (kind === 'drums') track.channel = 9
+    tracks.set(kind, track)
+  })
+  const secondsPerBeat = 60 / project.bpm
+  let sectionStart = 0
+  project.sections.forEach((section) => {
+    const chordTrack = tracks.get('chords')
+    let chordStart = sectionStart
+    let previousTop: number | undefined
+    let previousBass: number | undefined
+    section.chords.forEach((slot) => {
+      if (chordTrack) {
+        const inversion = slot.inversion > 0
+          ? slot.inversion
+          : pickInversion(slot.chord, 4 + slot.octave, { prevTopMidi: previousTop, prevBassMidi: previousBass })
+        const notes = voiceChord(slot.chord, 4 + slot.octave, { forcedInversion: inversion })
+        previousTop = notes[notes.length - 1]
+        previousBass = notes[0]
+        notes.forEach((note) => chordTrack.addNote({
+          midi: note,
+          time: chordStart * secondsPerBeat,
+          duration: slot.beats * secondsPerBeat * 0.95,
+          velocity: 0.78,
+        }))
+      }
+      chordStart += slot.beats
+    })
+    ;(['melody', 'bass'] as const).forEach((kind) => {
+      const track = tracks.get(kind)
+      const notes = section[kind]
+      if (!track) return
+      notes.forEach((note) => {
+        track.addNote({
+          midi: note.midi,
+          time: (sectionStart + note.start) * secondsPerBeat,
+          duration: note.dur * secondsPerBeat,
+          velocity: note.vel,
+        })
+      })
+    })
+    const drumTrack = tracks.get('drums')
+    if (drumTrack && section.drums) {
+      ;(Object.keys(section.drums.steps) as DrumPiece[]).forEach((piece) => {
+        section.drums?.steps[piece]?.forEach((hit, step) => {
+          if (!hit) return
+          drumTrack.addNote({
+            midi: GM_PERCUSSION[piece],
+            time: (sectionStart + step / 4) * secondsPerBeat,
+            duration: secondsPerBeat / 4 * 0.9,
+            velocity: step % 4 === 0 ? 0.9 : 0.66,
+          })
+        })
+      })
+    }
+    sectionStart += sectionBeats(section)
+  })
   return midi.toArray()
 }
 
