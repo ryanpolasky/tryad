@@ -1,8 +1,11 @@
 import * as Tone from 'tone'
 import type { DrumPiece, DrumStyle } from './drums'
 import { getDrumStyle } from './drums'
+import type { Project, Section, TrackConfig, TrackKind } from './project'
+import { sectionBeats } from './project'
+import { midiToNoteName, pickInversion, voiceChord } from './theory'
 
-export type InstrumentId = 'piano' | 'epiano' | 'guitar' | 'pad' | 'pluck'
+export type InstrumentId = 'piano' | 'epiano' | 'guitar' | 'pad' | 'pluck' | 'lead' | 'bass-electric' | 'synth-bass'
 
 export interface InstrumentDef {
   id: InstrumentId
@@ -16,6 +19,9 @@ export const INSTRUMENTS: InstrumentDef[] = [
   { id: 'guitar', label: 'acoustic guitar', description: 'Nylon guitar (sampled)' },
   { id: 'pad', label: 'pad', description: 'Lush analog-style pad (synth)' },
   { id: 'pluck', label: 'pluck', description: 'Percussive pluck (synth)' },
+  { id: 'lead', label: 'synth lead', description: 'Bright monophonic-style lead' },
+  { id: 'bass-electric', label: 'electric bass', description: 'Sampled electric bass' },
+  { id: 'synth-bass', label: 'synth bass', description: 'Monophonic synth bass' },
 ]
 
 const PIANO_URLS: Record<string, string> = {
@@ -147,6 +153,31 @@ function makePluckVoice(output: Tone.ToneAudioNode): Voice & { loaded: Promise<v
   }
 }
 
+function makeLeadVoice(output: Tone.ToneAudioNode): Voice & { loaded: Promise<void> } {
+  const synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'square' } as Tone.OmniOscillatorOptions,
+    envelope: { attack: 0.012, decay: 0.12, sustain: 0.42, release: 0.18 },
+    portamento: 0,
+  })
+  const vibrato = new Tone.Vibrato({ frequency: 5.2, depth: 0.08, wet: 0.2 })
+  synth.volume.value = -7
+  synth.chain(vibrato, output)
+  return {
+    triggerAttackRelease(notes, duration, time, velocity) {
+      synth.triggerAttackRelease(notes, duration, time, velocity)
+    },
+    releaseAll(time) {
+      synth.releaseAll(time)
+    },
+    dispose() {
+      synth.dispose()
+      vibrato.dispose()
+    },
+    output: synth,
+    loaded: Promise.resolve(),
+  }
+}
+
 function buildVoice(
   id: InstrumentId,
   output: Tone.ToneAudioNode,
@@ -162,6 +193,29 @@ function buildVoice(
       return makePadVoice(output)
     case 'pluck':
       return makePluckVoice(output)
+    case 'lead':
+      return makeLeadVoice(output)
+    case 'bass-electric':
+      return buildVoice('synth-bass', output)
+    case 'synth-bass': {
+      const synth = new Tone.MonoSynth({
+        oscillator: { type: 'sawtooth' },
+        filter: { Q: 1, type: 'lowpass', rolloff: -24, frequency: 360 },
+        envelope: { attack: 0.01, decay: 0.2, sustain: 0.55, release: 0.2 },
+        filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.2, release: 0.2, baseFrequency: 90, octaves: 2.5 },
+      })
+      synth.volume.value = -7
+      synth.connect(output)
+      return {
+        triggerAttackRelease(notes, duration, time, velocity) {
+          notes.forEach((note) => synth.triggerAttackRelease(note, duration, time, velocity))
+        },
+        releaseAll(time) { synth.triggerRelease(time) },
+        dispose() { synth.dispose() },
+        output: synth,
+        loaded: Promise.resolve(),
+      }
+    }
   }
 }
 
@@ -744,3 +798,442 @@ export async function renderProgression(opts: {
 }
 
 export const audio = new AudioEngine()
+
+interface SongEvent {
+  time: number
+  kind: TrackKind | 'metronome'
+  notes?: string[]
+  duration?: number
+  velocity?: number
+  piece?: DrumPiece
+  chordIndex?: number
+  sectionId?: string
+  beat?: number
+}
+
+interface SongChannel {
+  config: TrackConfig
+  gain: Tone.Gain
+  voice: (Voice & { loaded: Promise<void> }) | null
+  kit: DrumKit | null
+}
+
+function secondsAtBeat(beat: number, bpm: number): number {
+  return beat * 60 / bpm
+}
+
+function songEvents(project: Project, sections: Section[], startBeat: number): SongEvent[] {
+  const bpm = project.bpm
+  const secondsPerBeat = 60 / bpm
+  const events: SongEvent[] = []
+  let sectionOffset = 0
+  sections.forEach((section) => {
+    let chordOffset = sectionOffset
+    let previousTop: number | undefined
+    let previousBass: number | undefined
+    section.chords.forEach((slot, chordIndex) => {
+      const inv = slot.inversion > 0
+        ? slot.inversion
+        : pickInversion(slot.chord, 4 + slot.octave, { prevTopMidi: previousTop, prevBassMidi: previousBass })
+      const midiNotes = voiceChord(slot.chord, 4 + slot.octave, { forcedInversion: inv })
+      previousTop = midiNotes[midiNotes.length - 1]
+      previousBass = midiNotes[0]
+      const chordStart = chordOffset
+      const chordEnd = chordStart + slot.beats
+      if (chordEnd > startBeat) {
+        const notes = midiNotes.map(midiToNoteName)
+        const startSeconds = secondsAtBeat(Math.max(chordStart, startBeat), bpm)
+        const duration = secondsAtBeat(chordEnd - Math.max(chordStart, startBeat), bpm)
+        const subs = buildChordSubEvents(
+          notes,
+          startSeconds - secondsAtBeat(startBeat, bpm),
+          duration,
+          project.tracks.find((track) => track.kind === 'chords')?.playMode ?? 'block',
+          secondsPerBeat,
+          chordIndex,
+        )
+        subs.forEach((sub) => events.push({
+          time: sub.time,
+          kind: 'chords',
+          notes: sub.notes,
+          duration: sub.duration,
+          velocity: 0.76,
+          chordIndex: sub.idx,
+          sectionId: section.id,
+          beat: chordStart,
+        }))
+      }
+      chordOffset += slot.beats
+    })
+    const appendNotes = (kind: 'melody' | 'bass', notes: Section['melody']) => {
+      notes.forEach((note) => {
+        const beat = sectionOffset + note.start
+        if (beat + note.dur <= startBeat) return
+        const clippedStart = Math.max(beat, startBeat)
+        events.push({
+          time: secondsAtBeat(clippedStart - startBeat, bpm),
+          kind,
+          notes: [midiToNoteName(note.midi)],
+          duration: secondsAtBeat(beat + note.dur - clippedStart, bpm),
+          velocity: note.vel,
+          sectionId: section.id,
+          beat,
+        })
+      })
+    }
+    appendNotes('melody', section.melody)
+    appendNotes('bass', section.bass)
+    if (section.drums) {
+      ;(Object.keys(section.drums.steps) as DrumPiece[]).forEach((piece) => {
+        section.drums?.steps[piece]?.forEach((hit, step) => {
+          const beat = sectionOffset + step / 4
+          if (!hit || beat < startBeat) return
+          events.push({
+            time: secondsAtBeat(beat - startBeat, bpm),
+            kind: 'drums',
+            piece,
+            velocity: step % 4 === 0 ? 0.9 : 0.66,
+            sectionId: section.id,
+            beat,
+          })
+        })
+      })
+    }
+    sectionOffset += sectionBeats(section)
+  })
+  return events.sort((a, b) => a.time - b.time)
+}
+
+function voiceForTrack(track: TrackConfig, output: Tone.ToneAudioNode): (Voice & { loaded: Promise<void> }) | null {
+  if (track.kind === 'drums') return null
+  return buildVoice((track.instrument || (track.kind === 'bass' ? 'synth-bass' : 'piano')) as InstrumentId, output)
+}
+
+class SongAudioEngine {
+  private channels = new Map<TrackKind, SongChannel>()
+  private parts: Tone.Part<SongEvent>[] = []
+  private metronome: Tone.MembraneSynth | null = null
+  private startBeat = 0
+  private rangeBeats = 0
+  private transportStartTicks = 0
+  private playheadCallback: ((sectionId: string, chordIndex: number) => void) | null = null
+  private currentProject: Project | null = null
+  private sectionIds: string[] = []
+  private updateTimer: number | null = null
+  private pendingSectionSwitch: number | null = null
+
+  async setTracks(tracks: TrackConfig[], masterVolume: number): Promise<void> {
+    const graph = ensureGraph()
+    graph.master.gain.rampTo(masterVolume, 0.04)
+    const hasSolo = tracks.some((track) => track.solo)
+    for (const [kind, channel] of this.channels) {
+      if (!tracks.some((track) => track.kind === kind)) {
+        channel.voice?.dispose()
+        channel.kit?.dispose()
+        channel.gain.dispose()
+        this.channels.delete(kind)
+      }
+    }
+    for (const track of tracks) {
+      let channel = this.channels.get(track.kind)
+      if (channel && channel.config.instrument !== track.instrument) {
+        channel.voice?.dispose()
+        channel.kit?.dispose()
+        channel.gain.dispose()
+        this.channels.delete(track.kind)
+        channel = undefined
+      }
+      if (!channel) {
+        const gain = new Tone.Gain(track.volume).connect(graph.master)
+        channel = { config: track, gain, voice: voiceForTrack(track, gain), kit: track.kind === 'drums' ? buildDrumKit(gain) : null }
+        this.channels.set(track.kind, channel)
+        if (channel.voice) await channel.voice.loaded
+      }
+      channel.config = track
+      channel.gain.gain.rampTo(track.mute || (hasSolo && !track.solo) ? 0 : track.volume, 0.035)
+    }
+  }
+
+  setTrackControls(kind: TrackKind, controls: Partial<Pick<TrackConfig, 'volume' | 'mute' | 'solo'>>): void {
+    const channel = this.channels.get(kind)
+    if (!channel) return
+    channel.config = { ...channel.config, ...controls }
+    const hasSolo = Array.from(this.channels.values()).some((item) => item.config.solo)
+    const level = channel.config.mute || (hasSolo && !channel.config.solo) ? 0 : channel.config.volume
+    channel.gain.gain.rampTo(level, 0.035)
+  }
+
+  async start(): Promise<void> {
+    await Tone.start()
+  }
+
+  scheduleSong(opts: {
+    project: Project
+    startBeat?: number
+    sectionIds?: string[]
+    onChord?: (sectionId: string, chordIndex: number) => void
+  }): () => void {
+    this.stop()
+    const { project } = opts
+    this.currentProject = project
+    this.sectionIds = opts.sectionIds?.length ? opts.sectionIds : project.sections.map((section) => section.id)
+    const sections = this.sectionIds.map((id) => project.sections.find((section) => section.id === id)).filter((section): section is Section => Boolean(section))
+    this.startBeat = Math.max(0, opts.startBeat ?? 0)
+    this.rangeBeats = sections.reduce((sum, section) => sum + sectionBeats(section), 0)
+    this.playheadCallback = opts.onChord ?? null
+    const transport = Tone.getTransport()
+    transport.cancel(0)
+    transport.stop()
+    transport.position = 0
+    transport.bpm.value = project.bpm
+    this.transportStartTicks = transport.ticks
+    const events = songEvents(project, sections, this.startBeat)
+    const part = new Tone.Part<SongEvent>((time, event) => {
+      if (event.kind === 'metronome') {
+        this.metronome?.triggerAttackRelease('C6', 0.035, time, event.velocity ?? 0.5)
+        return
+      }
+      if (event.kind === 'drums') {
+        if (event.piece) this.channels.get('drums')?.kit?.trigger(event.piece, time, event.velocity ?? 0.75)
+        return
+      }
+      const channel = this.channels.get(event.kind)
+      if (channel?.voice && event.notes) channel.voice.triggerAttackRelease(event.notes, event.duration ?? 0.2, time, event.velocity ?? 0.7)
+      if (event.kind === 'chords' && event.sectionId && typeof event.chordIndex === 'number') {
+        Tone.getDraw().schedule(() => this.playheadCallback?.(event.sectionId as string, event.chordIndex as number), time)
+      }
+    }, events)
+    const secondsLength = secondsAtBeat(Math.max(0.25, this.rangeBeats - this.startBeat), project.bpm)
+    part.loop = true
+    part.loopEnd = secondsLength
+    part.start(0)
+    this.parts.push(part)
+    if (project.metronome) {
+      this.metronome ??= new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }).connect(ensureGraph().master)
+      const clicks = Array.from({ length: Math.ceil(this.rangeBeats - this.startBeat) }, (_, i) => ({
+        time: secondsAtBeat(i, project.bpm),
+        kind: 'metronome' as const,
+        velocity: (i + Math.ceil(this.startBeat)) % 4 === 0 ? 0.68 : 0.28,
+      }))
+      const clickPart = new Tone.Part<SongEvent>((time, event) => this.metronome?.triggerAttackRelease('C6', 0.035, time, event.velocity), clicks)
+      clickPart.loop = true
+      clickPart.loopEnd = secondsLength
+      clickPart.start(0)
+      this.parts.push(clickPart)
+    }
+    transport.start('+0.04')
+    return () => this.stop()
+  }
+
+  scheduleLiveUpdate(opts: {
+    project: Project
+    startBeat?: number
+    sectionIds?: string[]
+    onChord?: (sectionId: string, chordIndex: number) => void
+    retrigger?: boolean
+  }): void {
+    if (!this.isPlaying) return
+    if (this.updateTimer !== null) window.clearTimeout(this.updateTimer)
+    const currentBeat = opts.startBeat ?? this.getPlayheadBeat()
+    this.updateTimer = window.setTimeout(() => {
+      this.updateTimer = null
+      void this.applyLiveUpdate(opts, currentBeat)
+    }, 50)
+  }
+
+  switchSectionAtNextBar(opts: {
+    project: Project
+    sectionId: string
+    onChord?: (sectionId: string, chordIndex: number) => void
+  }): void {
+    const transport = Tone.getTransport()
+    if (this.pendingSectionSwitch !== null) transport.clear(this.pendingSectionSwitch)
+    const currentBeat = this.getPlayheadBeat()
+    const boundary = Math.ceil((currentBeat + 0.001) / 4) * 4
+    const delay = secondsAtBeat(Math.max(0.05, boundary - currentBeat), opts.project.bpm)
+    this.pendingSectionSwitch = transport.scheduleOnce(() => {
+      this.pendingSectionSwitch = null
+      this.scheduleLiveUpdate({ ...opts, sectionIds: [opts.sectionId], startBeat: 0, retrigger: true })
+    }, transport.seconds + delay)
+  }
+
+  private async applyLiveUpdate(
+    opts: { project: Project; startBeat?: number; sectionIds?: string[]; onChord?: (sectionId: string, chordIndex: number) => void; retrigger?: boolean },
+    requestedBeat: number,
+  ): Promise<void> {
+    if (!this.isPlaying) return
+    await this.setTracks(opts.project.tracks, opts.project.masterVolume)
+    if (opts.retrigger) {
+      const now = Tone.now()
+      for (const channel of this.channels.values()) channel.voice?.releaseAll(now)
+    }
+    const transport = Tone.getTransport()
+    transport.bpm.rampTo(opts.project.bpm, 0.05)
+    const project = opts.project
+    this.currentProject = project
+    this.sectionIds = opts.sectionIds?.length ? opts.sectionIds : project.sections.map((section) => section.id)
+    const sections = this.sectionIds.map((id) => project.sections.find((section) => section.id === id)).filter((section): section is Section => Boolean(section))
+    this.rangeBeats = sections.reduce((sum, section) => sum + sectionBeats(section), 0)
+    if (this.rangeBeats <= 0) return
+    const beat = ((requestedBeat % this.rangeBeats) + this.rangeBeats) % this.rangeBeats
+    this.startBeat = beat
+    this.playheadCallback = opts.onChord ?? this.playheadCallback
+    this.transportStartTicks = transport.ticks
+    for (const part of this.parts) {
+      part.stop()
+      part.dispose()
+    }
+    this.parts = []
+
+    const startAtTicks = Math.round(transport.ticks + (0.04 * transport.bpm.value * transport.PPQ) / 60)
+    const loopStartTicks = startAtTicks + Math.round((this.rangeBeats - beat) * transport.PPQ)
+    const loopEndTicks = Math.round(this.rangeBeats * transport.PPQ)
+    const addPart = (events: SongEvent[], atTicks: number, loop: boolean, endTicks: number) => {
+      const partEvents = events.map((event) => ({
+        ...event,
+        time: `${Math.round((event.time * project.bpm * transport.PPQ) / 60)}i`,
+      })) as unknown as SongEvent[]
+      const part = new Tone.Part<SongEvent>((time, event) => {
+        if (event.kind === 'metronome') {
+          this.metronome?.triggerAttackRelease('C6', 0.035, time, event.velocity ?? 0.5)
+          return
+        }
+        if (event.kind === 'drums') {
+          if (event.piece) this.channels.get('drums')?.kit?.trigger(event.piece, time, event.velocity ?? 0.75)
+          return
+        }
+        const channel = this.channels.get(event.kind)
+        if (channel?.voice && event.notes) channel.voice.triggerAttackRelease(event.notes, event.duration ?? 0.2, time, event.velocity ?? 0.7)
+        if (event.kind === 'chords' && event.sectionId && typeof event.chordIndex === 'number') {
+          Tone.getDraw().schedule(() => this.playheadCallback?.(event.sectionId as string, event.chordIndex as number), time)
+        }
+      }, partEvents)
+      part.loop = loop
+      part.loopEnd = `${endTicks}i`
+      part.start(`${atTicks}i`)
+      this.parts.push(part)
+    }
+
+    const tailEvents = songEvents(project, sections, beat)
+    const scheduledTailEvents = opts.retrigger ? tailEvents : tailEvents.filter((event) => event.time > 0.02)
+    addPart(scheduledTailEvents, startAtTicks, false, Math.round((this.rangeBeats - beat) * transport.PPQ))
+    addPart(songEvents(project, sections, 0), loopStartTicks, true, loopEndTicks)
+    if (project.metronome) {
+      this.metronome ??= new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }).connect(ensureGraph().master)
+      const tailClicks = Array.from({ length: Math.ceil(this.rangeBeats - beat) }, (_, index) => ({
+        time: secondsAtBeat(index + Math.ceil(beat) - beat, project.bpm),
+        kind: 'metronome' as const,
+        velocity: (index + Math.ceil(beat)) % 4 === 0 ? 0.68 : 0.28,
+      }))
+      const loopClicks = Array.from({ length: Math.ceil(this.rangeBeats) }, (_, index) => ({
+        time: secondsAtBeat(index, project.bpm),
+        kind: 'metronome' as const,
+        velocity: index % 4 === 0 ? 0.68 : 0.28,
+      }))
+      addPart(tailClicks, startAtTicks, false, Math.round((this.rangeBeats - beat) * transport.PPQ))
+      addPart(loopClicks, loopStartTicks, true, loopEndTicks)
+    }
+  }
+
+  getPlayheadBeat(): number {
+    if (!this.currentProject || this.rangeBeats <= 0) return 0
+    const transport = Tone.getTransport()
+    const elapsedBeats = Math.max(0, (transport.ticks - this.transportStartTicks) / transport.PPQ)
+    return (this.startBeat + elapsedBeats) % this.rangeBeats
+  }
+
+  getPlayheadPosition(): { beat: number; sectionId: string; chordIndex: number } | null {
+    if (!this.currentProject) return null
+    const beat = this.getPlayheadBeat()
+    let offset = 0
+    for (const sectionId of this.sectionIds) {
+      const section = this.currentProject.sections.find((item) => item.id === sectionId)
+      if (!section) continue
+      const length = sectionBeats(section)
+      if (beat < offset + length) {
+        const within = beat - offset
+        let chordOffset = 0
+        const index = section.chords.findIndex((slot) => {
+          const inSlot = within < chordOffset + slot.beats
+          chordOffset += slot.beats
+          return inSlot
+        })
+        return { beat: within, sectionId, chordIndex: Math.max(0, index) }
+      }
+      offset += length
+    }
+    return null
+  }
+
+  playNotes(notes: string[], duration = 0.5): void {
+    const voice = this.channels.get('chords')?.voice ?? this.channels.get('melody')?.voice
+    voice?.triggerAttackRelease(notes, duration)
+  }
+
+  stop(): void {
+    const transport = Tone.getTransport()
+    if (this.updateTimer !== null) window.clearTimeout(this.updateTimer)
+    this.updateTimer = null
+    if (this.pendingSectionSwitch !== null) transport.clear(this.pendingSectionSwitch)
+    this.pendingSectionSwitch = null
+    for (const part of this.parts) {
+      part.stop()
+      part.dispose()
+    }
+    this.parts = []
+    transport.stop()
+    transport.cancel(0)
+    for (const channel of this.channels.values()) channel.voice?.releaseAll()
+  }
+
+  get isPlaying(): boolean {
+    return Tone.getTransport().state === 'started'
+  }
+}
+
+export const songAudio = new SongAudioEngine()
+
+export async function renderSong(project: Project): Promise<AudioBuffer> {
+  const sections = project.sections
+  const lengthBeats = sections.reduce((sum, section) => sum + sectionBeats(section), 0)
+  const tail = 2.5
+  const tracks = project.tracks
+  const hasSolo = tracks.some((track) => track.solo)
+  const events = songEvents(project, sections, 0)
+  const duration = secondsAtBeat(lengthBeats, project.bpm) + tail
+  const rendered = await Tone.Offline(async (offlineContext) => {
+    const transport = offlineContext.transport
+    transport.bpm.value = project.bpm
+    const limiter = new Tone.Limiter(-1).toDestination()
+    const reverb = new Tone.Reverb({ decay: 2.6, preDelay: 0.02, wet: 0.22 }).connect(limiter)
+    await reverb.generate()
+    const master = new Tone.Gain(project.masterVolume).connect(reverb)
+    const channels = new Map<TrackKind, SongChannel>()
+    for (const track of tracks) {
+      const gain = new Tone.Gain(track.mute || (hasSolo && !track.solo) ? 0 : track.volume).connect(master)
+      const channel: SongChannel = { config: track, gain, voice: voiceForTrack(track, gain), kit: track.kind === 'drums' ? buildDrumKit(gain) : null }
+      channels.set(track.kind, channel)
+      if (channel.voice) await channel.voice.loaded
+    }
+    const metronome = project.metronome
+      ? new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }).connect(master)
+      : null
+    const allEvents = [...events]
+    if (metronome) {
+      for (let beat = 0; beat < lengthBeats; beat++) allEvents.push({ time: secondsAtBeat(beat, project.bpm), kind: 'metronome', velocity: beat % 4 === 0 ? 0.68 : 0.28 })
+    }
+    const part = new Tone.Part<SongEvent>((time, event) => {
+      if (event.kind === 'metronome') {
+        metronome?.triggerAttackRelease('C6', 0.035, time, event.velocity)
+      } else if (event.kind === 'drums') {
+        if (event.piece) channels.get('drums')?.kit?.trigger(event.piece, time, event.velocity ?? 0.75)
+      } else {
+        const channel = channels.get(event.kind)
+        if (channel?.voice && event.notes) channel.voice.triggerAttackRelease(event.notes, event.duration ?? 0.2, time, event.velocity ?? 0.7)
+      }
+    }, allEvents)
+    part.start(0)
+    transport.start(0)
+  }, duration)
+  return rendered.get() as AudioBuffer
+}

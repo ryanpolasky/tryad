@@ -1,5 +1,7 @@
 import type { Chord, Extension, MoodId, PitchClass, ScaleId, TriadQuality } from './theory'
 import type { InstrumentId, PlayMode } from './audio'
+import type { Project } from './project'
+import { createId, normalizeProject } from './project'
 
 // shape we serialize into the URL hash. compact-ish but readable. version field
 // lets us evolve the encoding without breaking already-shared links.
@@ -103,6 +105,18 @@ function b64urlDecode(s: string): string {
   return new TextDecoder().decode(bytes)
 }
 
+function b64urlEncodeBytes(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function b64urlDecodeBytes(s: string): Uint8Array {
+  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
+  const binary = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'))
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+}
+
 export function encodeState(state: ShareableState): string {
   const payload: ShareV1 = {
     v: 1,
@@ -177,4 +191,77 @@ export function readShareFromHash(): ShareableState | null {
 export function buildShareUrl(state: ShareableState): string {
   const base = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : ''
   return `${base}${HASH_PREFIX}${encodeState(state)}`
+}
+
+export async function buildProjectShareUrl(project: Project): Promise<string> {
+  const json = JSON.stringify(project)
+  let payload = b64urlEncode(json)
+  if (typeof CompressionStream !== 'undefined') {
+    try {
+      const bytes = new TextEncoder().encode(json)
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      const compressed = new Blob([buffer]).stream().pipeThrough(new CompressionStream('deflate-raw'))
+      payload = b64urlEncodeBytes(new Uint8Array(await new Response(compressed).arrayBuffer()))
+    } catch {
+      payload = b64urlEncode(json)
+    }
+  }
+  const base = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : ''
+  return `${base}#p=${payload}`
+}
+
+export async function readProjectFromHash(hash: string): Promise<Project | null> {
+  if (hash.startsWith('#s=')) {
+    const legacy = decodeState(hash.slice(3))
+    if (!legacy) return null
+    const section = {
+      id: createId(),
+      name: 'Verse',
+      role: 'verse' as const,
+      chords: legacy.chords.map((chord, index) => ({
+        chord,
+        beats: legacy.chordBeats[index] ?? legacy.beatsPerChord,
+        inversion: legacy.inversions[index] ?? 0,
+        octave: 0,
+        locked: legacy.locked[index] ?? false,
+      })),
+      melody: [],
+      bass: [],
+      drums: null,
+    }
+    return normalizeProject({
+      v: 2,
+      id: createId(),
+      title: 'shared progression',
+      key: legacy.key,
+      scaleId: legacy.scaleId,
+      moodId: legacy.moodId,
+      extension: legacy.extension,
+      bpm: legacy.bpm,
+      masterVolume: 0.85,
+      metronome: false,
+      loopSection: false,
+      tracks: [{ kind: 'chords', instrument: legacy.instrument, volume: 0.85, mute: false, solo: false, playMode: legacy.playMode }],
+      sections: [section],
+      activeSectionId: section.id,
+    })
+  }
+  if (!hash.startsWith('#p=')) return null
+  const encoded = hash.slice(3)
+  try {
+    const decoded = b64urlDecode(encoded)
+    const parsed = JSON.parse(decoded) as Project
+    if (parsed?.v === 2 && Array.isArray(parsed.sections)) return normalizeProject(parsed)
+  } catch {
+    try {
+      const bytes = b64urlDecodeBytes(encoded)
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
+      const parsed = JSON.parse(await new Response(stream).text()) as Project
+      if (parsed?.v === 2 && Array.isArray(parsed.sections)) return normalizeProject(parsed)
+    } catch {
+      return null
+    }
+  }
+  return null
 }

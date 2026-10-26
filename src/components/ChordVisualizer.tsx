@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import type { Chord, PitchClass } from '../lib/theory'
-import { bassPitchClass, pcName, voiceChord } from '../lib/theory'
+import type { Chord, KeySpelling, PitchClass, Scale } from '../lib/theory'
+import { bassPitchClass, pcName, spellChordPitchClass, voiceChord } from '../lib/theory'
 
 export type VisualizerMode = 'piano' | 'guitar'
 
@@ -8,6 +8,9 @@ interface ChordVisualizerProps {
   chord: Chord
   inversion: number
   preferFlat?: boolean
+  projectKey?: PitchClass
+  scale?: Scale
+  spelling?: KeySpelling
   mode: VisualizerMode
   onModeChange: (m: VisualizerMode) => void
   onCycleInversion?: () => void
@@ -17,6 +20,9 @@ export function ChordVisualizer({
   chord,
   inversion,
   preferFlat,
+  projectKey,
+  scale,
+  spelling,
   mode,
   onModeChange,
   onCycleInversion,
@@ -30,7 +36,7 @@ export function ChordVisualizer({
   const voicedSet = useMemo(() => new Set<number>(voicedMidis), [voicedMidis])
   const slash =
     inversion > 0
-      ? `${chord.symbol} / ${pcName(bassPc, preferFlat)}`
+      ? `${chord.symbol} / ${projectKey !== undefined && scale ? spellChordPitchClass(chord, bassPc, projectKey, scale, spelling) : pcName(bassPc, preferFlat)}`
       : chord.symbol
   const invLabel =
     inversion === 0
@@ -57,7 +63,7 @@ export function ChordVisualizer({
             <button
               type="button"
               onClick={onCycleInversion}
-              className={`shrink-0 font-mono text-[10px] uppercase tracking-widest rounded-full border px-2 py-[2px] transition-colors ${
+              className={`shrink-0 font-mono text-[10px] uppercase tracking-widest rounded border px-2 py-[2px] transition-colors ${
                 inversion > 0
                   ? 'border-accent/60 bg-accent/10 text-accent'
                   : 'border-bg-line text-ink-dim hover:text-ink hover:border-ink-mute'
@@ -83,14 +89,14 @@ export function ChordVisualizer({
             voicedSet={voicedSet}
             bassMidi={voicedMidis[0]}
             rootPc={chord.root}
-            preferFlat={preferFlat}
+            spellPitch={(pitchClass) => projectKey !== undefined && scale ? spellChordPitchClass(chord, pitchClass, projectKey, scale, spelling) : pcName(pitchClass, preferFlat)}
           />
         ) : (
           <GuitarView
             voicedMidis={voicedMidis}
             bassPc={bassPc}
             rootPc={chord.root}
-            preferFlat={preferFlat}
+            spellPitch={(pitchClass) => projectKey !== undefined && scale ? spellChordPitchClass(chord, pitchClass, projectKey, scale, spelling) : pcName(pitchClass, preferFlat)}
           />
         )}
       </div>
@@ -111,7 +117,7 @@ function ModeBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-widest rounded-full border transition-colors ${
+      className={`px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-widest rounded border transition-colors ${
         active
           ? 'border-accent/60 bg-accent/10 text-accent'
           : 'border-bg-line text-ink-mute hover:text-ink hover:border-ink-mute'
@@ -145,12 +151,12 @@ function PianoView({
   voicedSet,
   bassMidi,
   rootPc,
-  preferFlat,
+  spellPitch,
 }: {
   voicedSet: Set<number>
   bassMidi: number
   rootPc: PitchClass
-  preferFlat?: boolean
+  spellPitch: (pitchClass: PitchClass) => string
 }) {
   const whiteCount = WHITE_PCS.length * PIANO_OCTAVES
   const totalW = whiteCount * WHITE_W
@@ -215,7 +221,7 @@ function PianoView({
                   fontWeight: isRoot ? 700 : 400,
                 }}
               >
-                {pcName(w.pc, preferFlat)}
+                {spellPitch(w.pc)}
               </text>
             )}
           </g>
@@ -251,7 +257,7 @@ function PianoView({
                   fontWeight: isRoot ? 700 : 400,
                 }}
               >
-                {pcName(b.pc, preferFlat)}
+                {spellPitch(b.pc)}
               </text>
             )}
           </g>
@@ -336,12 +342,12 @@ function GuitarView({
   voicedMidis,
   bassPc,
   rootPc,
-  preferFlat,
+  spellPitch,
 }: {
   voicedMidis: number[]
   bassPc: PitchClass
   rootPc: PitchClass
-  preferFlat?: boolean
+  spellPitch: (pitchClass: PitchClass) => string
 }) {
   const dots = useMemo(() => {
     const pcs = voicedMidis.map((m) => (((m % 12) + 12) % 12) as PitchClass)
@@ -524,7 +530,7 @@ function GuitarView({
                 fontWeight: d.isRoot ? 700 : 400,
               }}
             >
-              {pcName(d.pc, preferFlat)}
+              {spellPitch(d.pc)}
             </text>
           </g>
         )

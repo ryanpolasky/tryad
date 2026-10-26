@@ -4,36 +4,33 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        display: ['"Bespoke Serif"', 'ui-serif', 'Georgia', 'serif'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        display: ['Archivo', 'system-ui', 'sans-serif'],
+        sans: ['Archivo', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
         bg: {
-          DEFAULT: '#08090b',
-          soft: '#0d0f12',
-          card: '#101317',
-          line: '#1a1d23',
-          hover: '#161a20',
+          DEFAULT: 'rgb(var(--bg-rgb) / <alpha-value>)',
+          soft: 'rgb(var(--chrome-rgb) / <alpha-value>)',
+          card: 'rgb(var(--field-rgb) / <alpha-value>)',
+          line: 'rgb(var(--line-rgb) / <alpha-value>)',
+          hover: 'rgb(var(--btn-rgb) / <alpha-value>)',
         },
         ink: {
-          DEFAULT: '#e8e6e3',
-          mute: '#8a8d93',
-          dim: '#5a5e66',
+          DEFAULT: 'rgb(var(--ink-rgb) / <alpha-value>)',
+          mute: 'rgb(var(--dim-rgb) / <alpha-value>)',
+          dim: 'rgb(var(--dim-rgb) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: '#d99550',
-          soft: '#e8b06b',
-          dim: '#9c6a36',
+          DEFAULT: 'rgb(var(--hot-rgb) / <alpha-value>)',
+          soft: 'rgb(var(--hot-rgb) / <alpha-value>)',
+          dim: 'rgb(var(--hot-d-rgb) / <alpha-value>)',
         },
-        warn: '#f5a524',
-        bad: '#ff5d6e',
+        warn: 'rgb(var(--away-rgb) / <alpha-value>)',
+        bad: 'rgb(var(--tension-rgb) / <alpha-value>)',
       },
       letterSpacing: {
         widest: '0.18em',
-      },
-      boxShadow: {
-        glow: '0 0 0 1px rgba(217,149,80,0.35), 0 8px 32px -10px rgba(217,149,80,0.35)',
       },
     },
   },

@@ -21,14 +21,14 @@ export default function Landing() {
           </h1>
           <p className="font-sans text-lg sm:text-xl text-ink-mute max-w-3xl leading-relaxed">
             hi, i'm ryan.{' '}
-            <Wordmark /> is a free chord progression generator that runs
-            entirely in your browser. there's no signup screen, no "pro" tier,
-            no upload. it's the chord tool i wanted to exist, which is why i
-            built it.
+            <Wordmark /> is a free browser music studio for trying chord
+            progressions, melodies, bass lines, and drums. there's no signup
+            screen, no "pro" tier, no upload. it's the music tool i wanted to
+            exist, which is why i built it.
           </p>
           <div className="flex flex-wrap gap-3 mt-4">
             <Link to="/app" className="pill pill-primary text-sm">
-              open the generator →
+              open the studio →
             </Link>
             <a href="#why" className="pill text-sm">
               why i built it
@@ -62,8 +62,9 @@ export default function Landing() {
             <p className="text-ink-dim text-base">
               the trade is: tryad isn't going to learn from your playing or
               hold your hand through a tutorial. it just spits out
-              theory-grounded progressions, lets you tweak them, plays them
-              back, and exports MIDI. that's it. hope that's useful.
+              theory-grounded progressions, lets you build up tracks and
+              sections, edit notes and drum patterns, plays them back, and
+              exports your song. that's it. hope that's useful.
             </p>
           </div>
         </section>
@@ -92,7 +93,7 @@ export default function Landing() {
             />
             <Feature
               title="secondary dominants"
-              body="V/V, V/vi, V/iv injected at mood-specific rates (jazz around 35%, cinematic 28%, pop 18%, sad 10%). the jazz progressions chain them into ii-V-I cadences when the template allows."
+              body="chorus splits can place a secondary dominant just before its target chord, adding a clear pull into the next chord."
             />
             <Feature
               title="modal interchange"
@@ -111,8 +112,16 @@ export default function Landing() {
               body="triad, 7th, 9th, sus2, sus4, add9. block, strum, rolled (harp gliss), four arp modes (up, down, up-down, random), pulse, syncopated rhythm, classical alberti, and a bass + chord ballad comp. swap between them while the loop is running."
             />
             <Feature
-              title="visualizer + drums + MIDI"
-              body="click any chord to see the literal voicing on a piano keyboard or guitar fretboard. 5 drum styles synced to your tempo. export the whole thing as a standard .mid with separate chord and drum tracks."
+              title="a little studio, in your browser"
+              body="work with chord, melody, bass, and drum tracks across song sections. edit melodies and bass in a piano roll, tap out drum patterns, and follow chords on a piano or guitar visualizer."
+            />
+            <Feature
+              title="vibe box + song export"
+              body="describe a mood to get a starting point, then change anything you like. play the full arrangement and export MIDI or WAV, all locally in your browser."
+            />
+            <Feature
+              title="sections that make a song"
+              body="add, rename, duplicate, and regenerate sections without losing the rest of the arrangement. edit chords, notes, and drum steps right on the timeline."
             />
           </div>
         </section>
