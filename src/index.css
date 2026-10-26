@@ -292,7 +292,6 @@ input[type='range']::-moz-range-thumb {
 .studio-section-menu { top: 34px; left: 0; min-width: 150px; }
 .studio-add-section { width: 30px; height: 30px; border: 1px dashed #424750; border-radius: 6px; background: transparent; color: var(--studio-muted); font-size: 17px !important; }
 .studio-tabs-spacer { flex: 1; }
-.studio-key-meta { color: var(--studio-muted); font-family: monospace; font-size: 10px; }
 .studio-grid { min-width: 760px; }
 .studio-ruler-label, .studio-track-head {
   display: flex; align-items: center; gap: 8px; padding: 0 12px; border-right: 1px solid var(--studio-line); background: #111418;
@@ -367,6 +366,9 @@ input[type='range']::-moz-range-thumb {
 .studio-add-track-head button:hover { border-color: #8d6338; color: #e8b06b !important; }
 .studio-lane.empty { height: 48px; background: #101317; }
 .studio-bottom-panel { flex: 0 0 235px; min-height: 180px; overflow: hidden; border-top: 1px solid #30343b; background: #15181d; }
+.studio-bottom-panel.editor-resizable { position: relative; flex: 0 0 300px; height: 300px; min-height: 180px; max-height: 70vh; }
+.studio-editor-resize-handle { position: absolute; z-index: 10; top: 0; right: 0; left: 0; display: flex; align-items: flex-start; justify-content: center; height: 10px; padding: 2px 0 0; border: 0; background: transparent; cursor: ns-resize; touch-action: none; }
+.studio-editor-resize-handle span { width: 38px; height: 3px; border-radius: 3px; background: #555b65; }
 .studio-panel-header { justify-content: space-between; height: 42px; padding: 0 18px; border-bottom: 1px solid #292d34; }
 .studio-panel-tabs { align-self: stretch; gap: 16px; }
 .studio-panel-tabs button { position: relative; height: 100%; padding: 0 2px; border: 0; background: transparent; color: #868a92 !important; font-size: 10px !important; }
@@ -485,14 +487,14 @@ input[type='range']::-moz-range-thumb {
 .studio-ruler-scroll::-webkit-scrollbar, .studio-lane-wrap::-webkit-scrollbar { display: none; }
 .studio-ruler { background-image: linear-gradient(to right, rgba(255,255,255,.035) 1px, transparent 1px); }
 .studio-position-readout {
-  position: absolute;
-  z-index: 3;
-  top: 11px;
-  right: 10px;
+  flex: 0 0 118px;
+  width: 118px;
   color: #737984;
   font-family: monospace;
   font-size: 9px;
-  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
 }
 .studio-track-row { grid-template-columns: 218px minmax(0,1fr); min-height: 78px; }
 .studio-track-head { box-sizing: border-box; height: 78px; min-height: 78px; gap: 7px; padding: 6px 8px; }
@@ -669,7 +671,7 @@ input[type='range']::-moz-range-thumb {
   .studio-top-actions > button, .studio-export-caret { height: 29px; padding: 0 7px; font-size: 10px !important; }
   .studio-export-main { height: 29px; }
   .studio-section-tabs { flex-basis: 42px; height: 42px; padding: 0 8px; }
-  .studio-key-meta { padding-left: 4px; font-size: 8px; }
+  .studio-position-readout { flex-basis: 108px; width: 108px; font-size: 8px; }
   .studio-workspace { min-height: 0; }
   .studio-grid { min-height: 100%; overflow: auto; background-image: linear-gradient(to right, #111418 0, #111418 71px, transparent 72px), repeating-linear-gradient(to right, transparent 0, transparent calc(68px - 1px), rgba(55,60,69,.35) 68px); background-position: left top, 72px top; }
   .studio-ruler-label { width: 72px; height: 34px; gap: 2px; padding: 0 4px; }
@@ -677,7 +679,6 @@ input[type='range']::-moz-range-thumb {
   .studio-zoom { gap: 0; font-size: 7px; }
   .studio-zoom button { width: 14px; }
   .studio-ruler-scroll { height: 34px; margin-left: 72px; }
-  .studio-position-readout { right: 6px; font-size: 8px; }
   .studio-track-row { grid-template-columns: 72px minmax(0,1fr); min-height: 68px; }
   .studio-track-head { height: 68px; min-height: 68px; justify-content: center; gap: 2px; padding: 4px; }
   .studio-track-main { flex: 0 0 auto; display: flex; width: 42px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
@@ -724,6 +725,7 @@ input[type='range']::-moz-range-thumb {
     overflow: hidden;
     box-shadow: 0 -12px 35px rgba(0,0,0,.45);
   }
+  .studio-bottom-panel.editor-resizable { position: absolute; flex: none; height: 45vh; max-height: 70vh; min-height: 180px; }
   .studio-panel-header { height: 42px; padding: 0 8px; }
   .studio-panel-tabs { gap: 9px; overflow-x: auto; }
   .studio-panel-tabs button { flex: 0 0 auto; font-size: 8px !important; }

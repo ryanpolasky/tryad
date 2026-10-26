@@ -4,6 +4,7 @@ import { DRUM_STYLES } from '../../lib/drums'
 import { INSTRUMENTS, PLAY_MODE_GROUPS } from '../../lib/audio'
 import { MOODS, SCALE_LIST } from '../../lib/theory'
 import type { MoodId } from '../../lib/theory'
+import { sectionLengthLabel } from '../../lib/project'
 import type { ChordSlot, Project, Section, TrackConfig, TrackKind } from '../../lib/project'
 
 const TRACK_LABELS: Record<TrackKind, string> = { chords: 'Chords', melody: 'Melody', bass: 'Bass', drums: 'Drums' }
@@ -116,7 +117,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
         ))}
         <button type="button" className="studio-add-section" aria-label="Add section" onClick={onAddSection}>+</button>
         <div className="studio-tabs-spacer" />
-        <span className="studio-key-meta">{totalBeats / 4} bars</span>
+        <span className="studio-position-readout">{positionBar}.{positionBeat} · {sectionLengthLabel(totalBeats)}</span>
       </div>
       <div className="studio-grid">
         <div className="studio-ruler-label">
@@ -134,7 +135,6 @@ export function StudioTimeline(props: StudioTimelineProps) {
             ))}
             <span className="studio-ruler-playhead" style={{ left: playheadBeat * pxPerBeat }} />
           </div>
-          <span className="studio-position-readout">{positionBar}.{positionBeat} / {totalBeats / 4} bars</span>
         </div>
         {tracks.map((track) => (
           <div className="studio-track-row" key={track.kind}>

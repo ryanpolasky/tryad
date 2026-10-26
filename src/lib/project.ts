@@ -91,6 +91,11 @@ export function sectionBeats(section: Section): number {
   return section.chords.reduce((total, slot) => total + slot.beats, 0)
 }
 
+export function sectionLengthLabel(beats: number): string {
+  const length = Number(beats.toFixed(2))
+  return Number.isInteger(length / 4) ? `${length / 4} bars` : `${length} beats`
+}
+
 export function makeSection(name: string, chords: Chord[], beats = 4): Section {
   return {
     id: createId(),

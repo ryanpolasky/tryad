@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChordVisualizer, type VisualizerMode } from '../ChordVisualizer'
 import { diatonicChords, keyName, keySignaturePrefersFlats, KEY_OPTIONS, SCALES, SCALE_LIST } from '../../lib/theory'
 import type { Chord, Extension, KeySpelling, PitchClass, ScaleId } from '../../lib/theory'
@@ -11,6 +11,24 @@ import type { DrumGrid, NoteEvent } from '../../lib/project'
 
 type PaletteTab = 'In Key' | 'Search' | 'Suggestions' | 'Other Key' | 'Voicings' | 'Visualizer'
 type EditorKind = 'melody' | 'bass' | 'drums' | null
+const EDITOR_PANEL_HEIGHT_KEY = 'tryad:studio:editor-panel-height'
+
+function clampEditorPanelHeight(height: number): number {
+  const max = typeof window === 'undefined' ? height : Math.max(180, window.innerHeight * 0.7)
+  return Math.round(Math.max(180, Math.min(max, height)))
+}
+
+function savedEditorPanelHeight(): number | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const saved = window.localStorage.getItem(EDITOR_PANEL_HEIGHT_KEY)
+    if (saved === null) return null
+    const height = Number(saved)
+    return Number.isFinite(height) && height > 0 ? clampEditorPanelHeight(height) : null
+  } catch {
+    return null
+  }
+}
 
 interface StudioBottomPanelProps {
   project: Project
@@ -92,7 +110,39 @@ export function StudioBottomPanel({
   const [otherSpelling, setOtherSpelling] = useState<KeySpelling | undefined>(project.keySpelling)
   const [otherScale, setOtherScale] = useState<ScaleId>(project.scaleId)
   const [extensions, setExtensions] = useState<Extension>(project.extension)
+  const [editorPanelHeight, setEditorPanelHeight] = useState<number | null>(savedEditorPanelHeight)
+  const panelRef = useRef<HTMLElement | null>(null)
   useEffect(() => setTab(requestedTab), [requestedTab])
+  const persistEditorPanelHeight = (height: number) => {
+    const next = clampEditorPanelHeight(height)
+    setEditorPanelHeight(next)
+    try {
+      window.localStorage.setItem(EDITOR_PANEL_HEIGHT_KEY, String(next))
+    } catch {
+      return
+    }
+  }
+  const beginPanelResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    const startY = event.clientY
+    const startHeight = panelRef.current?.getBoundingClientRect().height ?? editorPanelHeight ?? 300
+    const move = (moveEvent: PointerEvent) => {
+      setEditorPanelHeight(clampEditorPanelHeight(startHeight + startY - moveEvent.clientY))
+    }
+    const end = (endEvent: PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      persistEditorPanelHeight(startHeight + startY - endEvent.clientY)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end, { once: true })
+  }
+  const resizePanelWithKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    const current = panelRef.current?.getBoundingClientRect().height ?? editorPanelHeight ?? 300
+    persistEditorPanelHeight(current + (event.key === 'ArrowUp' ? 20 : -20))
+  }
   const slot = section.chords[chordIndex]
   const chord = slot?.chord
   const visualChord = playing && playingChord ? playingChord : chord
@@ -116,7 +166,20 @@ export function StudioBottomPanel({
 
   if (!open) return null
   return (
-    <section className="studio-bottom-panel" aria-label="Studio editor panel">
+    <section
+      ref={panelRef}
+      className={`studio-bottom-panel ${editor ? 'editor-resizable' : ''}`}
+      style={editor && editorPanelHeight !== null ? { height: `${editorPanelHeight}px`, flex: `0 0 ${editorPanelHeight}px` } : undefined}
+      aria-label="Studio editor panel"
+    >
+      {editor ? <button
+        type="button"
+        className="studio-editor-resize-handle"
+        aria-label="Resize editor panel"
+        title="Drag to resize editor panel"
+        onPointerDown={beginPanelResize}
+        onKeyDown={resizePanelWithKeyboard}
+      ><span /></button> : null}
       <div className="studio-panel-header">
         <div className="studio-panel-tabs">
           {editor ? <span>{editor === 'drums' ? 'Drum editor' : `${editor[0].toUpperCase()}${editor.slice(1)} editor`}</span> : null}

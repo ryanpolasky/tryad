@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DRUM_STYLES, type DrumPiece } from '../../lib/drums'
 import { generateDrums } from '../../lib/generate'
 import type { DrumGrid, Section } from '../../lib/project'
-import { sectionBeats } from '../../lib/project'
+import { sectionBeats, sectionLengthLabel } from '../../lib/project'
 
 interface DrumStepEditorProps {
   section: Section
@@ -75,7 +75,7 @@ export function DrumStepEditor({ section, style, playing, playheadBeat, onGridCh
     <div className="studio-drum-editor">
       <div className="studio-drum-toolbar">
         <label>Pattern<select aria-label="Drum style preset" value={style} onChange={(event) => changePreset(event.target.value)}>{DRUM_STYLES.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
-        <span>{Math.ceil(stepCount / 16)} bars · 16 steps per bar</span>
+        <span>{sectionLengthLabel(sectionBeats(section))} · 16 steps per bar</span>
       </div>
       <div className="studio-drum-scroll">
         <div className="studio-drum-grid" style={{ width: 92 + stepCount * 22 }}>
