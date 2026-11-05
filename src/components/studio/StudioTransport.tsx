@@ -4,6 +4,7 @@ import type { KeySpelling, PitchClass, ScaleId } from '../../lib/theory'
 import type { Project } from '../../lib/project'
 import type { VisualizerMode } from '../ChordVisualizer'
 import { useStudioMenu } from './useStudioMenu'
+import { StudioPopover } from './StudioPopover'
 
 export type StudioTool = 'chords' | 'voicings' | 'melody' | 'bass' | 'drums' | 'piano' | 'guitar' | 'shortcuts'
 
@@ -72,7 +73,7 @@ export function StudioTransport({
             <small>{scaleLabel}</small>
           </button>
           {keyOpen ? (
-            <div className="studio-popover studio-key-popover">
+            <StudioPopover className="studio-key-popover" placement="above-center">
               <strong>Key &amp; scale</strong>
               <label>Key<select aria-label="Project key" value={selectedKey} onChange={(event) => {
                 const [keyText, spellingText] = event.target.value.split(':')
@@ -81,7 +82,7 @@ export function StudioTransport({
               }}>{KEY_OPTIONS.map((item) => <option key={`${item.key}:${item.spelling ?? 'natural'}`} value={`${item.key}:${item.spelling ?? 'natural'}`}>{item.name}</option>)}</select></label>
               <label>Scale<select aria-label="Project scale" value={project.scaleId} onChange={(event) => { onKey(project.key, event.target.value as ScaleId, project.keySpelling); setOpenMenu(null) }}>{SCALE_LIST.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
               <label>Chord extension<select aria-label="Chord extension" value={project.extension} onChange={(event) => { onExtension(event.target.value as Project['extension']); setOpenMenu(null) }}>{EXTENSIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-            </div>
+            </StudioPopover>
           ) : null}
         </div>
         <button type="button" className="studio-transport-icon" aria-label="Skip to start" title="Skip to start" onClick={onStart}><Icon name="start" /></button>
@@ -96,7 +97,7 @@ export function StudioTransport({
         <div className="studio-menu-wrap" data-studio-menu-root>
           <button type="button" className="studio-tools-button" onClick={() => setOpenMenu(toolsOpen ? null : 'transport:tools')}>Tools <span>⌄</span></button>
           {toolsOpen ? (
-            <div className="studio-popover studio-tools-menu">
+            <StudioPopover className="studio-tools-menu" placement="above-end">
               <strong>Tools</strong>
               {TOOL_ITEMS.map((item) => (
                 <button type="button" key={item.id} onClick={() => { onTool(item.id); setOpenMenu(null) }}>
@@ -105,7 +106,7 @@ export function StudioTransport({
                 </button>
               ))}
               {isRendering ? <span className="studio-muted">Rendering WAV…</span> : null}
-            </div>
+            </StudioPopover>
           ) : null}
         </div>
         <button type="button" className="studio-help-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={() => onTool('shortcuts')}>?</button>

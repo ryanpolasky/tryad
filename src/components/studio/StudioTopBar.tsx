@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Project } from '../../lib/project'
 import { useStudioMenu } from './useStudioMenu'
+import { StudioPopover } from './StudioPopover'
 
 export interface SavedStudioProject {
   id: string
@@ -69,7 +70,7 @@ export function StudioTopBar({
             </button>
           )}
           {projectsOpen ? (
-            <div className="studio-popover studio-projects-menu">
+            <StudioPopover className="studio-projects-menu">
               <div className="studio-popover-title">Projects on this device</div>
               <button type="button" onClick={() => { setTitleEditing(true); setOpenMenu(null) }}>Rename project</button>
               <button type="button" onClick={() => { onSaveAs(); setOpenMenu(null) }}>Save as new project</button>
@@ -80,7 +81,7 @@ export function StudioTopBar({
                 </div>
               ))}
               {savedProjects.length === 0 ? <span className="studio-muted">No saved projects yet</span> : null}
-            </div>
+            </StudioPopover>
           ) : null}
         </div>
         <div className="studio-history">
@@ -105,11 +106,11 @@ export function StudioTopBar({
           <button type="button" className="studio-export-main" onClick={() => onExport('midi')}>Export</button>
           <button type="button" className="studio-export-caret" aria-label="Export options" onClick={() => setOpenMenu(exportOpen ? null : 'export')}>⌄</button>
           {exportOpen ? (
-            <div className="studio-popover studio-export-menu">
+            <StudioPopover className="studio-export-menu" placement="below-end">
               <button type="button" onClick={() => { onExport('midi'); setOpenMenu(null) }}>MIDI · all tracks</button>
               <button type="button" onClick={() => { onExport('chords-midi'); setOpenMenu(null) }}>MIDI · chords only</button>
               <button type="button" onClick={() => { onExport('wav'); setOpenMenu(null) }}>WAV · render song</button>
-            </div>
+            </StudioPopover>
           ) : null}
         </div>
       </div>

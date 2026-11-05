@@ -7,6 +7,7 @@ import type { MoodId } from '../../lib/theory'
 import { sectionLengthLabel } from '../../lib/project'
 import type { ChordSlot, Project, Section, TrackConfig, TrackKind } from '../../lib/project'
 import { useStudioMenu } from './useStudioMenu'
+import { StudioPopover } from './StudioPopover'
 
 const TRACK_LABELS: Record<TrackKind, string> = { chords: 'Chords', melody: 'Melody', bass: 'Bass', drums: 'Drums' }
 const BEAT_WIDTH = 68
@@ -122,21 +123,21 @@ export function StudioTimeline(props: StudioTimelineProps) {
               onContextMenu={(event) => { event.preventDefault(); setSectionMenu(item.id) }}
             >⋯</button>
             {sectionMenu === item.id ? (
-              <div className="studio-popover studio-section-menu">
+              <StudioPopover className="studio-section-menu">
                 {(['rename', 'duplicate', 'regenerate', 'regenerate-all', 'delete'] as const).map((action) => (
                   <button type="button" key={action} onClick={() => {
                     onSectionAction(action, item)
                     setSectionMenu(null)
                   }}>{action === 'regenerate' ? 'Regenerate section' : action === 'regenerate-all' ? 'Regenerate all sections' : action[0].toUpperCase() + action.slice(1)}</button>
                 ))}
-              </div>
+              </StudioPopover>
             ) : null}
           </div>
         ))}
         <button type="button" className="studio-add-section" aria-label="Add section" onClick={onAddSection}>+</button>
         {missingTracks.length ? <div className="studio-mobile-add-track" data-studio-menu-root>
           <button type="button" onClick={() => setOpenMenu(addTrackOpen ? null : 'add-track')}>+ Track</button>
-          {addTrackOpen ? <div className="studio-popover studio-add-track-menu">{missingTracks.map((kind) => <button type="button" key={kind} onClick={() => { onAddTrack(kind); setOpenMenu(null) }}>{TRACK_LABELS[kind]}</button>)}</div> : null}
+          {addTrackOpen ? <StudioPopover className="studio-add-track-menu">{missingTracks.map((kind) => <button type="button" key={kind} onClick={() => { onAddTrack(kind); setOpenMenu(null) }}>{TRACK_LABELS[kind]}</button>)}</StudioPopover> : null}
         </div> : null}
         <div className="studio-tabs-spacer" />
         <span className="studio-position-readout">{positionBar}.{positionBeat} · {sectionLengthLabel(totalBeats)}</span>
@@ -191,7 +192,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
                 </div>
               </div>
               {trackMenu === track.kind ? (
-                <div className="studio-popover studio-track-menu">
+                <StudioPopover className="studio-track-menu" anchor=".studio-track-more">
                   <span className="studio-popover-title">{track.kind === 'drums' ? 'Drum style' : 'Instrument'}</span>
                   {(track.kind === 'drums' ? DRUM_STYLES.map((style) => ({ id: style.id, label: style.label })) : INSTRUMENTS
                     .filter((instrument) => track.kind === 'bass' ? instrument.id.includes('bass') : !instrument.id.includes('bass'))
@@ -202,7 +203,7 @@ export function StudioTimeline(props: StudioTimelineProps) {
                     }}>{item.label}</button>
                   ))}
                   {track.kind !== 'chords' ? <button type="button" className="danger" onClick={() => { onRemoveTrack(track.kind); setTrackMenu(null) }}>Remove track</button> : null}
-                </div>
+                </StudioPopover>
               ) : null}
               <div className="studio-generator-tile" ref={(node) => {
                 if (node) tileRefs.current.set(track.kind, node)
@@ -247,11 +248,11 @@ export function StudioTimeline(props: StudioTimelineProps) {
                             <button type="button" className="studio-chord-more" aria-label={`More actions for chord ${index + 1}`} onClick={(event) => { event.stopPropagation(); setOpenMenu(openMenu === chordMenuId ? null : chordMenuId) }}>⋯</button>
                           </div>
                           {openMenu === chordMenuId ? (
-                            <div className="studio-popover studio-chord-menu">
+                            <StudioPopover className="studio-chord-menu" anchor=".studio-chord-more" placement="above-end">
                               <button type="button" onClick={(event) => { event.stopPropagation(); onRerollChord(index); setOpenMenu(null) }}>Regenerate chord</button>
                               <button type="button" onClick={(event) => { event.stopPropagation(); onUpdateChord(index, { ...slot, locked: !slot.locked }); setOpenMenu(null) }}>{slot.locked ? 'Unlock chord' : 'Lock chord'}</button>
                               {section.chords.length > 1 ? <button type="button" onClick={(event) => { event.stopPropagation(); onDeleteChord(index); setOpenMenu(null) }}>Delete chord</button> : null}
-                            </div>
+                            </StudioPopover>
                           ) : null}
                           {selectedChord === index ? (
                             <>
